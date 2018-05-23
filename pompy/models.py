@@ -9,7 +9,9 @@ __authors__ = 'Matt Graham'
 __license__ = 'MIT'
 
 import numpy as np
+import scipy
 import scipy.interpolate as interp
+import utility
 
 
 class Puff(object):
@@ -128,7 +130,7 @@ class PlumeModel(object):
     def __init__(self, sim_region, source_pos, wind_model, model_z_disp=True,
                  centre_rel_diff_scale=2., puff_init_rad=0.03,
                  puff_spread_rate=0.001, puff_release_rate=10,
-                 init_num_puffs=50, max_num_puffs=1000, prng=np.random):
+                 init_num_puffs=10, max_num_puffs=1000, prng=np.random):
         """
         Parameters
         ----------
@@ -286,9 +288,9 @@ class WindModel(object):
     interpolated over the edges.
     """
 
-    def __init__(self, sim_region, nx=15, ny=15, u_av=1., v_av=0., Kx=2.,
+    def __init__(self, sim_region, nx=15, ny=15,  Kx=2.,
                  Ky=2., noise_gain=5., noise_damp=0.2, noise_bandwidth=0.2,
-                 noise_rand=np.random):
+                 noise_rand=np.random,EmpiricalWindField=None):
         """
         Parameters
         ----------
@@ -299,12 +301,7 @@ class WindModel(object):
             Number of grid points in x direction.
         ny : integer
             Number of grid points in y direction.
-        u_av : float
-            Mean x-component of wind velocity (u).
-            (dimensionality: length/time)
-        v_av : float
-            Mean y-component of wind velocity (v).
-            (dimensionality: length/time)
+
         Kx : float or array_like
             Diffusivity constant in x direction. Either a single scalar value
             across the whole simulated region or an array of size (nx, ny)
@@ -330,6 +327,7 @@ class WindModel(object):
             RandomState can be set if it is desired to have reproducible
             output.
         """
+        self.EmpiricalWindField = EmpiricalWindField
         # store grid parameters interally
         self._dx = abs(sim_region.w) / (nx-1)  # x grid point spacing
         self._dy = abs(sim_region.h) / (ny-1)  # y grid point spacing
@@ -341,6 +339,7 @@ class WindModel(object):
         self._C = 2. * (self._Bx + self._By)
         # initialise wind velocity field to mean values
         # +2s are to account for boundary grid points
+        u_av,v_av = EmpiricalWindField.current_value()
         self._u = np.ones((nx+2, ny+2)) * u_av
         self._v = np.ones((nx+2, ny+2)) * v_av
         # create views on to field interiors (i.e. not including boundaries)
@@ -414,6 +413,7 @@ class WindModel(object):
         return np.array([float(self._interp_u(x, y)),
                          float(self._interp_v(x, y))])
 
+
     def update(self, dt):
         """
         Updates wind velocity field values using finite difference
@@ -426,6 +426,11 @@ class WindModel(object):
             Simulation time-step.
             (dimensionality: time)
         """
+
+        #update corner means to reflect changing observed wind
+        u_av,v_av = self.EmpiricalWindField.current_value()
+        self._corner_means = np.array([u_av, v_av]).repeat(4)
+
         # update boundary values
         self._apply_boundary_conditions(dt)
         # initialise wind speed derivative arrays
@@ -491,6 +496,9 @@ class WindModel(object):
         return (f[2:, 1:-1] + f[0:-2, 1:-1]), (f[1:-1, 2:]+f[1:-1, 0:-2])
 
 
+
+
+
 class ColouredNoiseGenerator(object):
 
     """
@@ -547,3 +555,30 @@ class ColouredNoiseGenerator(object):
         dx_dt = self._A.dot(self._x) + self._B * u
         # apply update with Euler integration
         self._x += dx_dt * dt
+
+class EmpiricalWindField(object):
+    def __init__(self,wind_data_file,wind_dt,dt):
+        self.wind_dt = wind_dt
+        wind_dct = utility.process_wind_data(wind_data_file,0,wind_dt=5)
+        self.wind_speed_vec = scipy.array(wind_dct['wind_speed'])
+        self.wind_angle_vec = scipy.array(wind_dct['wind_angle'])
+        self.update_counter = 0
+        self.current_wind_speed = self.wind_speed_vec[0]
+        self.current_wind_angle = self.wind_angle_vec[0]
+    def update(self,dt):
+        t=dt*self.update_counter
+        print(t)
+        index = int(scipy.floor(t/self.wind_dt))
+        self.current_wind_speed = self.wind_speed_vec[index]
+        self.current_wind_angle = self.wind_angle_vec[index]
+        self.update_counter +=1
+    def current_value(self):
+        wind_vel_x = self.current_wind_speed*scipy.cos(self.current_wind_angle)
+        wind_vel_y = self.current_wind_speed*scipy.sin(self.current_wind_angle)
+        return wind_vel_x,wind_vel_y
+
+# class ConcentrationStorer(object):
+#     #A class for storing time-evolving odor concentration data, and retrieving
+#     #it for use with behaving flies.
+#     def __init__(self,initial_conc_array,image,dt,):
+#         self.simulation_region = image.g
