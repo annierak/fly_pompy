@@ -12,6 +12,8 @@ import numpy as np
 import scipy
 import scipy.interpolate as interp
 import utility
+import datetime
+import h5_logger
 
 
 class Puff(object):
@@ -577,8 +579,46 @@ class EmpiricalWindField(object):
         wind_vel_y = self.current_wind_speed*scipy.sin(self.current_wind_angle)
         return wind_vel_x,wind_vel_y
 
-# class ConcentrationStorer(object):
-#     #A class for storing time-evolving odor concentration data, and retrieving
-#     #it for use with behaving flies.
-#     def __init__(self,initial_conc_array,image,dt,):
-#         self.simulation_region = image.g
+class ConcentrationStorer(object):
+    #A class for storing time-evolving odor concentration data, and retrieving
+    #it for use with simulated flies.
+    def __init__(self,initial_conc_array,image,dt,t_stop,vmin,vmax,cmap='Reds'):
+        #Make sure initial_conc_array has been flipped from the pompy bug
+        self.simulation_region = image.get_extent()
+        self.dt = dt
+        #concentration data stored here, x by y by t
+        x_pixels, y_pixels = scipy.shape(initial_conc_array)
+        print((x_pixels,y_pixels,int(t_stop/dt)))
+        n = datetime.datetime.utcnow()
+        self.filename = 'concObject{0}.{1}-{2}:{3}.hdf5'.format(
+        n.month,n.day,n.hour,n.minute)
+        num_steps = int(t_stop/dt)
+        run_param = {
+        'num_steps': num_steps, dt:'dt',
+        'simulation_region': self.simulation_region,
+        'simulation_time':t_stop,
+        'cmap': cmap, 'imshow_bounds':(vmin,vmax)
+        }
+        self.logger = h5_logger.H5Logger(self.filename,param_attr=run_param)
+        self.load_counter = 0
+        self.full = False
+
+    def store(self,dt,conc_array):
+        # if self.full:
+        #     print('Error: storer already full')
+        #     sys.exit()
+        data = {'conc_array':conc_array}
+        self.logger.add(data)
+        self.load_counter +=1
+
+    def array_at_time(self,t):
+        if self.full==False:
+            print('Error: storer not properly loaded')
+        else:
+            ind = int(t/self.dt)
+            return self.big_conc_array[:,:,ind]
+    #
+    # def finish_filling(self):
+    #     self.full = True
+    #     data ={'conc_array':0,'object':self}
+    #     self.logger.add(data)

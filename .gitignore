@@ -1,0 +1,7 @@
+*~
+*.egg-info
+*.pyc
+*.hdf5
+*.pkl
+*.mp4
+

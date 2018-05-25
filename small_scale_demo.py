@@ -7,12 +7,14 @@ import utility
 import sys
 import time
 import itertools
+import cPickle as pickle
+
 
 dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 60*10 #seconds
+simulation_time = 60*2. #seconds
 
 
 #Odor arena
@@ -74,7 +76,9 @@ conc_array = array_gen.generate_single_array(plume_model.puff_array)
 xmin = sim_region.x_min; xmax = sim_region.x_max
 ymin = sim_region.y_min; ymax = sim_region.y_max
 im_extents = (xmin,xmax,ymin,ymax)
-conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents, vmin=0., vmax=50, cmap='Reds')
+vmin,vmax = 0.,50.
+conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
+vmin=vmin, vmax=vmax, cmap='Reds')
 
 #Display initial wind vector field
 velocity_field = wind_field.velocity_field
@@ -95,8 +99,8 @@ color='green',mutation_scale=10,arrowstyle='-|>')
 plt.gca().add_patch(wind_arrow)
 
 #Initialize stored concentration array object
-
-
+concStorer = models.ConcentrationStorer(conc_array.T[::-1],conc_im,
+dt,simulation_time,vmin,vmax)
 
 # Define animation update function
 def update(i):
@@ -115,11 +119,19 @@ def update(i):
     ymax-0.2*(ymax-ymin)+arrow_magn*y_wind))
     conc_array = array_gen.generate_single_array(plume_model.puff_array)
     conc_im.set_data(conc_array.T[::-1])
+    concStorer.store(dt,conc_array.T[::-1])
     return [conc_im]#,vector_field]
 
 # Run and save output to video
-anim = FuncAnimation(fig, update, frames=frame_rate*simulation_time/times_real_time, repeat=False)
+anim = FuncAnimation(fig, update, frames=int(frame_rate*simulation_time/times_real_time), repeat=False)
+
 # plt.show()
-saved = anim.save('plume_test.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
-# anim = FuncAnimation(fig, update, frames=100, interval=100, repeat=False)
-# saved_anim = anim.save('plume.gif', dpi=100, writer='imagemagick')
+
+#Save the animation to video
+saved = anim.save('plume_saving_test.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+# concStorer.finish_filling()
+
+#Save the concentration to pkl
+# output_file = ('test_conc_array.pkl')
+# with open(output_file, 'w') as f:
+#         pickle.dump(concStorer,f)
