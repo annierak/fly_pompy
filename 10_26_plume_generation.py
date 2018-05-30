@@ -1,9 +1,14 @@
 from pompy import models, processors
+from odor_tracking_sim import trap_models
+import odor_tracking_sim.trap_models as trap_models
+import odor_tracking_sim.utility as utility
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches
 from matplotlib.animation import FuncAnimation
 import scipy
-import utility
+import scipy.sparse
 import sys
 import time
 import itertools
@@ -14,16 +19,33 @@ dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 60*2. #seconds
+simulation_time = 5. #seconds
 
+
+#traps
+number_sources = 8
+radius_sources = 1000.0
+trap_radius = 0.5
+location_list, strength_list = utility.create_circle_of_sources(number_sources,
+                radius_sources,None)
+trap_param = {
+        'source_locations' : location_list,
+        'source_strengths' : strength_list,
+        'epsilon'          : 0.01,
+        'trap_radius'      : trap_radius,
+        'source_radius'    : radius_sources
+}
+
+traps = trap_models.TrapModel(trap_param)
 
 #Odor arena
-xlim = (-15., 15.)
-ylim = (0., 40.)
+xlim = (-1500., 1500.)
+ylim = (-1500., 1500.)
 sim_region = models.Rectangle(xlim[0], ylim[0], xlim[1], ylim[1])
 wind_region = models.Rectangle(xlim[0]*1.2,ylim[0]*1.2,
 xlim[1]*1.2,ylim[1]*1.2)
-source_pos = (7.5,25)
+
+source_pos = scipy.array([scipy.array(tup) for tup in traps.param['source_locations']]).T
 
 #wind setup
 
@@ -37,7 +59,7 @@ aspect_ratio= (xlim[1]-xlim[0])/(ylim[1]-ylim[0])
 noise_gain=3.
 noise_damp=0.071
 noise_bandwidth=0.71
-wind_grid_density = 15
+wind_grid_density = 30
 Kx = Ky = 30
 wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
 wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
@@ -58,27 +80,66 @@ plume_model = models.PlumeModel(
 
 # Create a concentration array generator
 array_z = 0.01
-array_dim_x = 1000
-array_dim_y = 1000
+#Based on eye inspection of the local plume dynamics (see near_plume_plume_generator),
+# a grid unit width of 0.1 m seems appropriate
+array_dim_x = 30000
+array_dim_y = array_dim_x
+display_array_dim_x = 500
+display_array_dim_y = display_array_dim_x
 puff_mol_amount = 1.
 array_gen = processors.ConcentrationArrayGenerator(
     sim_region, array_z, array_dim_x, array_dim_y, puff_mol_amount)
+display_array_gen = processors.ConcentrationArrayGenerator(
+    sim_region, array_z, display_array_dim_x, display_array_dim_y,
+     puff_mol_amount)
 
 # Set up figure
-fig = plt.figure(figsize=(7.5, 9))
-ax = fig.add_axes([0., 0., 1., 1.])
-buffr = 4
+fig = plt.figure(figsize=(11, 11))
+ax = fig.add_axes([0.1, 0.1, .8, .8])
+buffr = -300
 ax.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
 ax.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
 
-# Display initial concentration field as image
+#Put the time in the corner
+(xmin,xmax) = ax.get_xlim();(ymin,ymax) = ax.get_ylim()
+text = '0 min 0 sec'
+timer= ax.text(xmax,ymax,text,color='r',horizontalalignment='right')
+
+# Full size conc array
 conc_array = array_gen.generate_single_array(plume_model.puff_array)
 xmin = sim_region.x_min; xmax = sim_region.x_max
 ymin = sim_region.y_min; ymax = sim_region.y_max
 im_extents = (xmin,xmax,ymin,ymax)
-vmin,vmax = 0.,50.
-conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
+vmin,vmax = 0.,5.
+# conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
+# vmin=vmin, vmax=vmax, cmap='Reds')
+
+# conc array for display
+display_conc_array = display_array_gen.generate_single_array(plume_model.puff_array)
+xmin = sim_region.x_min; xmax = sim_region.x_max
+ymin = sim_region.y_min; ymax = sim_region.y_max
+im_extents = (xmin,xmax,ymin,ymax)
+vmin,vmax = 0.,5.
+display_conc_im = ax.imshow(display_conc_array.T[::-1], extent=im_extents,
 vmin=vmin, vmax=vmax, cmap='Reds')
+
+#Initialize stored concentration array object
+concStorer = models.ConcentrationStorer(conc_array.T[::-1],im_extents,
+capture_interval*dt,simulation_time,vmin,vmax,centre_rel_diff_scale,
+puff_release_rate,
+puff_spread_rate,
+puff_init_rad,
+puff_mol_amount,display_only=False)
+
+#Initialize stored concentration array object for display
+display_concStorer = models.ConcentrationStorer(display_conc_array.T[::-1],
+im_extents,
+capture_interval*dt,simulation_time,vmin,vmax,centre_rel_diff_scale,
+puff_release_rate,
+puff_spread_rate,
+puff_init_rad,
+puff_mol_amount,display_only=True)
+
 
 #Display initial wind vector field
 velocity_field = wind_field.velocity_field
@@ -98,18 +159,21 @@ ymax-0.2*(ymax-ymin)+arrow_magn*y_wind),
 color='green',mutation_scale=10,arrowstyle='-|>')
 plt.gca().add_patch(wind_arrow)
 
-#Initialize stored concentration array object
-concStorer = models.ConcentrationStorer(conc_array.T[::-1],conc_im,
-dt,simulation_time,vmin,vmax)
-
+#Initialize stored wind vector field object
+windStorer = models.WindStorer(wind_field.velocity_field,
+wind_field.x_points,wind_field.y_points,capture_interval*dt,simulation_time,
+wind_grid_density,noise_gain,noise_damp,
+noise_bandwidth)
+t = 0.
 # Define animation update function
 def update(i):
+    global t
     for k in range(capture_interval):
         observedWind.update(dt)
         wind_field.update(dt)
         plume_model.update(dt)
+        t+=dt
     velocity_field = wind_field.velocity_field
-    print(velocity_field[0,0,:])
     u,v = velocity_field[:,:,0],velocity_field[:,:,1]
     vector_field.set_UVC(u,v)
     arrow_magn = 4
@@ -117,18 +181,30 @@ def update(i):
     wind_arrow.set_positions((xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),
     (xmin+(xmax-xmin)/2+arrow_magn*x_wind,
     ymax-0.2*(ymax-ymin)+arrow_magn*y_wind))
+    text ='{0} min {1} sec'.format(
+    int(scipy.floor(abs(t/60.))),int(scipy.floor(abs(t)%60.)))
+    timer.set_text(text)
+    last = time.time()
     conc_array = array_gen.generate_single_array(plume_model.puff_array)
-    conc_im.set_data(conc_array.T[::-1])
-    concStorer.store(dt,conc_array.T[::-1])
-    return [conc_im]#,vector_field]
+    display_conc_array = display_array_gen.generate_single_array(plume_model.puff_array)
+    display_conc_im.set_data(display_conc_array.T[::-1])
+    print('time generating conc array',time.time()-last)
+    last = time.time()
+    conc_array_T = scipy.sparse.coo_matrix(conc_array.T[::-1])
+    concStorer.sparse_store(conc_array_T)
+    display_concStorer.store(display_conc_array.T[::-1])
+    print('time storing conc',time.time()-last)
+    windStorer.store(velocity_field)
+
+    return [display_conc_im]#,vector_field]
 
 # Run and save output to video
 anim = FuncAnimation(fig, update, frames=int(frame_rate*simulation_time/times_real_time), repeat=False)
 
-# plt.show()
+plt.show()
 
 #Save the animation to video
-saved = anim.save('plume_saving_test.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('plume_saving_test_111.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()
 
 #Save the concentration to pkl

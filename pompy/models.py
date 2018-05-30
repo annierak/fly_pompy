@@ -11,9 +11,11 @@ __license__ = 'MIT'
 import numpy as np
 import scipy
 import scipy.interpolate as interp
+import scipy.sparse
 import utility
 import datetime
 import h5_logger
+import os
 
 
 class Puff(object):
@@ -198,8 +200,10 @@ class PlumeModel(object):
         """
         self.sim_region = sim_region
         self.wind_model = wind_model
+        self.source_pos = source_pos
         self.prng = prng
         self.model_z_disp = model_z_disp
+        self.unique_sources = len(source_pos[0,:])
         self._vel_dim = 3 if model_z_disp else 2
         if (model_z_disp and hasattr(centre_rel_diff_scale, '__len__') and
                 len(centre_rel_diff_scale) == 2):
@@ -207,35 +211,43 @@ class PlumeModel(object):
                                                   len(centre_rel_diff_scale) \
                                                   must be 1 or 3')
         self.centre_rel_diff_scale = centre_rel_diff_scale
-        if not sim_region.contains(source_pos[0], source_pos[1]):
-            raise InvalidSourcePositionError('Specified source (x,y) \
+        for i in range(self.unique_sources):
+            if not sim_region.contains(source_pos[0,i], source_pos[1,i]):
+                raise InvalidSourcePositionError('Specified source (x,y) \
                                               position must be within \
                                               simulation region.')
         # default to zero height source
-        source_z = 0
+        self.source_z = 0
         if len(source_pos) == 3:
-            source_z = source_pos[2]
-        self._new_puff_params = (source_pos[0], source_pos[1], source_z,
+            self.source_z = source_pos[2]
+        self.puff_init_rad = puff_init_rad
+        self._new_puff_params = (source_pos[0], source_pos[1], self.source_z,
                                  puff_init_rad**2)
         self.puff_spread_rate = puff_spread_rate
         self.puff_release_rate = puff_release_rate
         self.max_num_puffs = max_num_puffs
         # initialise puff list with specified number of new puffs
-        self.puffs = [Puff(*self._new_puff_params)
-                      for i in range(init_num_puffs)]
+        self.puffs = list(scipy.ndarray.flatten(scipy.array(
+        [[Puff(source_pos[0,j],source_pos[1,j],self.source_z,puff_init_rad**2) for j in range(self.unique_sources)]
+                      for i in range(init_num_puffs)])))
 
     def update(self, dt):
         """Perform time-step update of plume model with Euler integration."""
         # add more puffs (stochastically) if enough capacity
-        if len(self.puffs) < self.max_num_puffs:
+        if len(self.puffs) < self.max_num_puffs*self.unique_sources:
             # puff release modelled as Poisson process at fixed mean rate
             # with number to release clipped if it would otherwise exceed
             # the maximum allowed
-            num_to_release = self.prng.poisson(self.puff_release_rate*dt)
-            num_to_release = min(num_to_release,
+
+            #****Draw separately for each trap
+            for j in range(self.unique_sources):
+                num_to_release = self.prng.poisson(self.puff_release_rate*dt)
+                num_to_release = min(num_to_release,
                                  self.max_num_puffs - len(self.puffs))
-            for i in range(num_to_release):
-                self.puffs.append(Puff(*self._new_puff_params))
+                for i in range(num_to_release):
+                    self.puffs.append(Puff(self.source_pos[0,j],
+                    self.source_pos[1,j],self.source_z,self.puff_init_rad**2))
+
         # initialise empty list for puffs that have not left simulation area
         alive_puffs = []
         for puff in self.puffs:
@@ -582,43 +594,84 @@ class EmpiricalWindField(object):
 class ConcentrationStorer(object):
     #A class for storing time-evolving odor concentration data, and retrieving
     #it for use with simulated flies.
-    def __init__(self,initial_conc_array,image,dt,t_stop,vmin,vmax,cmap='Reds'):
+    def __init__(self,initial_conc_array,image,dt_store,t_stop,vmin,vmax,
+    centre_rel_diff_scale,
+    puff_release_rate,
+    puff_spread_rate,
+    puff_init_rad,
+    puff_mol_amount,
+    cmap='Reds',display_only=False):
         #Make sure initial_conc_array has been flipped from the pompy bug
         self.simulation_region = image.get_extent()
-        self.dt = dt
+        self.dt_store = dt_store
         #concentration data stored here, x by y by t
         x_pixels, y_pixels = scipy.shape(initial_conc_array)
-        print((x_pixels,y_pixels,int(t_stop/dt)))
+        print((x_pixels,y_pixels,int(t_stop/dt_store)))
         n = datetime.datetime.utcnow()
-        self.filename = 'concObject{0}.{1}-{2}:{3}.hdf5'.format(
+        if display_only:
+            display_text = 'display'
+        else:
+            display_text = ''
+        self.filename = display_text+'concObject{0}.{1}-{2}:{3}'.format(
         n.month,n.day,n.hour,n.minute)
-        num_steps = int(t_stop/dt)
+        self.hdf5_filename = self.filename+'.hdf5'
+        num_steps = int(t_stop/dt_store)
         run_param = {
-        'num_steps': num_steps, dt:'dt',
+        'num_steps': num_steps, 'dt_store':dt_store,
         'simulation_region': self.simulation_region,
         'simulation_time':t_stop,
-        'cmap': cmap, 'imshow_bounds':(vmin,vmax)
+        'cmap': cmap, 'imshow_bounds':(vmin,vmax),
+        'centre_rel_diff_scale':centre_rel_diff_scale,
+        'puff_init_rad':        puff_init_rad,
+        'puff_release_rate':         puff_release_rate,
+        'puff_spread_rate':         puff_spread_rate,
+        'puff_mol_amount':        puff_mol_amount
         }
-        self.logger = h5_logger.H5Logger(self.filename,param_attr=run_param)
-        self.load_counter = 0
-        self.full = False
-
-    def store(self,dt,conc_array):
-        # if self.full:
-        #     print('Error: storer already full')
-        #     sys.exit()
+        self.logger = h5_logger.H5Logger(self.hdf5_filename,param_attr=run_param)
+        #for saving sparse arrays
+        self.store_counter = 0
+        cwd = os.getcwd()
+        self.sparse_store_dir = cwd+'/'+self.filename+'_sparseConc'
+        try:
+            os.mkdir(self.sparse_store_dir)
+        except(OSError):
+            pass
+    def store(self,conc_array):
         data = {'conc_array':conc_array}
         self.logger.add(data)
-        self.load_counter +=1
 
-    def array_at_time(self,t):
-        if self.full==False:
-            print('Error: storer not properly loaded')
-        else:
-            ind = int(t/self.dt)
-            return self.big_conc_array[:,:,ind]
-    #
-    # def finish_filling(self):
-    #     self.full = True
-    #     data ={'conc_array':0,'object':self}
-    #     self.logger.add(data)
+    def sparse_store(self,sparse_conc_array):
+        self.store_counter+=1
+        scipy.sparse.save_npz(
+        self.sparse_store_dir+'\sparseConc'+str(self.store_counter),
+        sparse_conc_array)
+
+class WindStorer(object):
+    #A class for storing time-evolving wind data, and retrieving
+    #it for use with simulated flies.
+    def __init__(self,initial_wind_array,x_points,y_points,dt_store,t_stop,
+    wind_grid_density,noise_gain,noise_damp,
+    noise_bandwidth):
+        self.u = initial_wind_array[:,:,0]
+        self.v = initial_wind_array[:,:,1]
+        self.dt_store = dt_store
+        self.t_stop = t_stop
+        self.x_points = x_points
+        self.y_points = y_points
+        n = datetime.datetime.utcnow()
+        self.filename = 'windObject{0}.{1}-{2}:{3}.hdf5'.format(
+        n.month,n.day,n.hour,n.minute)
+        run_param = {
+        'dt_store':dt_store, 'simulation_time':t_stop,
+        'x_points':x_points.tolist(),'y_points':y_points.tolist(),
+        'wind_grid_density':wind_grid_density,
+        'noise_gain':noise_gain,
+        'noise_damp':noise_damp,
+        'noise_bandwidth':noise_bandwidth
+        }
+        print(y_points)
+        self.logger = h5_logger.H5Logger(self.filename,param_attr=run_param)
+
+    def store(self,velocity_field):
+        data = {'velocity_field':velocity_field}
+        self.logger.add(data)
