@@ -123,17 +123,13 @@ vmin,vmax = 0.,5.
 display_conc_im = ax.imshow(display_conc_array.T[::-1], extent=im_extents,
 vmin=vmin, vmax=vmax, cmap='Reds')
 
-#Initialize stored concentration array object
-concStorer = models.ConcentrationStorer(conc_array.T[::-1],im_extents,
-capture_interval*dt,simulation_time,vmin,vmax,centre_rel_diff_scale,
-puff_release_rate,
-puff_spread_rate,
-puff_init_rad,
-puff_mol_amount,display_only=False)
+#Initialize stored plume object
+plumeStorer = models.plumeStorer(plume_model,capture_interval*dt,
+simulation_time)
 
 #Initialize stored concentration array object for display
 display_concStorer = models.ConcentrationStorer(display_conc_array.T[::-1],
-im_extents,
+display_conc_im,
 capture_interval*dt,simulation_time,vmin,vmax,centre_rel_diff_scale,
 puff_release_rate,
 puff_spread_rate,

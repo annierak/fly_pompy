@@ -9,14 +9,15 @@ import utility
 import sys
 import time
 import itertools
-import cPickle as pickle
+import dill as pickle
 
+output_file = ('test_saved_plumes.pkl')
 
 dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 30. #seconds
+simulation_time = 60. #seconds
 
 
 #Odor arena
@@ -90,6 +91,10 @@ puff_spread_rate,
 puff_init_rad,
 puff_mol_amount)
 
+#Initialize stored plume object
+plumeStorer = models.PlumeStorer(plume_model,capture_interval*dt,
+simulation_time)
+
 #Display initial wind vector field
 velocity_field = wind_field.velocity_field
 u,v = velocity_field[:,:,0],velocity_field[:,:,1]
@@ -114,6 +119,11 @@ wind_field.x_points,wind_field.y_points,capture_interval*dt,simulation_time,
 wind_grid_density,noise_gain,noise_damp,
 noise_bandwidth)
 
+
+def init():
+    #do nothing
+    pass
+
 # Define animation update function
 def update(i):
     for k in range(capture_interval):
@@ -132,19 +142,21 @@ def update(i):
     conc_im.set_data(conc_array.T[::-1])
     concStorer.store(conc_array.T[::-1])
     windStorer.store(velocity_field)
+    plumeStorer.store(plume_model.puff_array)
 
     return [conc_im]#,vector_field]
 
 # Run and save output to video
-anim = FuncAnimation(fig, update, frames=int(frame_rate*simulation_time/times_real_time), repeat=False)
+anim = FuncAnimation(fig, update, frames=int(
+scipy.floor(frame_rate*simulation_time/times_real_time)),
+init_func=init,repeat=False)
 
 plt.show()
 
 #Save the animation to video
-saved = anim.save('plume_saving_test_124.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('plume_saving_test_125.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()
 
-#Save the concentration to pkl
-# output_file = ('test_conc_array.pkl')
-# with open(output_file, 'w') as f:
-#         pickle.dump(concStorer,f)
+# Save the plumes to pkl
+with open(output_file, 'w') as f:
+        pickle.dump(plumeStorer,f)

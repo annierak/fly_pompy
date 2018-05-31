@@ -230,6 +230,9 @@ class PlumeModel(object):
         self.puffs = list(scipy.ndarray.flatten(scipy.array(
         [[Puff(source_pos[0,j],source_pos[1,j],self.source_z,puff_init_rad**2) for j in range(self.unique_sources)]
                       for i in range(init_num_puffs)])))
+    def report(self):
+        print('We have '+str(len(self.puffs))+' puffs going on.')
+
 
     def update(self, dt):
         """Perform time-step update of plume model with Euler integration."""
@@ -591,6 +594,24 @@ class EmpiricalWindField(object):
         wind_vel_y = self.current_wind_speed*scipy.sin(self.current_wind_angle)
         return wind_vel_x,wind_vel_y
 
+class PlumeStorer(object):
+    def __init__(self,plume_model,dt_store,t_stop):
+        self.sim_region = plume_model.sim_region
+        self.dt_store = dt_store
+        #this stores the puffs at every time step, t x puffs x 4 (infos per puff)
+        self.big_puff_array = scipy.full(
+        (int(scipy.ceil(t_stop/dt_store)),int(1e5),4),scipy.nan)
+        self.puff_array_ends = scipy.full(
+        int(scipy.ceil(t_stop/dt_store)),scipy.nan)
+        self.store_counter = -1
+    def store(self,puff_array):
+        self.store_counter += 1
+        array_end = scipy.size(puff_array,0)
+        self.puff_array_ends[self.store_counter] =  array_end
+        self.big_puff_array[self.store_counter,0:array_end,:] = puff_array
+
+
+
 class ConcentrationStorer(object):
     #A class for storing time-evolving odor concentration data, and retrieving
     #it for use with simulated flies.
@@ -600,7 +621,7 @@ class ConcentrationStorer(object):
     puff_spread_rate,
     puff_init_rad,
     puff_mol_amount,
-    cmap='Reds',display_only=False):
+    cmap='Reds',display_only=False,sparse_store=False):
         #Make sure initial_conc_array has been flipped from the pompy bug
         self.simulation_region = image.get_extent()
         self.dt_store = dt_store
@@ -632,10 +653,11 @@ class ConcentrationStorer(object):
         self.store_counter = 0
         cwd = os.getcwd()
         self.sparse_store_dir = cwd+'/'+self.filename+'_sparseConc'
-        try:
-            os.mkdir(self.sparse_store_dir)
-        except(OSError):
-            pass
+        if sparse_store:
+            try:
+                os.mkdir(self.sparse_store_dir)
+            except(OSError):
+                pass
     def store(self,conc_array):
         data = {'conc_array':conc_array}
         self.logger.add(data)
