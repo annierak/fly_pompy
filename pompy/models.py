@@ -596,21 +596,29 @@ class EmpiricalWindField(object):
 
 class PlumeStorer(object):
     def __init__(self,plume_model,dt_store,t_stop):
-        self.sim_region = plume_model.sim_region
+        self.sim_region = plume_model.sim_region.as_tuple()
         self.dt_store = dt_store
-        #this stores the puffs at every time step, t x puffs x 4 (infos per puff)
-        self.big_puff_array = scipy.full(
-        (int(scipy.ceil(t_stop/dt_store)),int(1e5),4),scipy.nan)
+        #store the puffs at every time step, t x puffs x 4 (infos per puff)
+        n = datetime.datetime.utcnow()
+        self.filename = 'puffObject{0}.{1}-{2}:{3}'.format(
+        n.month,n.day,n.hour,n.minute)
+        self.hdf5_filename = self.filename+'.hdf5'
+        num_steps = int(t_stop/dt_store)
+        run_param = {
+        'num_steps': num_steps, 'dt_store':dt_store,
+        'simulation_region': self.sim_region,
+        'simulation_time':t_stop}
+        self.logger = h5_logger.H5Logger(self.hdf5_filename,param_attr=run_param)
+        self.anticipated_puffs = int(1e5)
         self.puff_array_ends = scipy.full(
-        int(scipy.ceil(t_stop/dt_store)),scipy.nan)
-        self.store_counter = -1
+        int(scipy.ceil(t_stop/dt_store)),scipy.nan
+        )
     def store(self,puff_array):
-        self.store_counter += 1
         array_end = scipy.size(puff_array,0)
-        self.puff_array_ends[self.store_counter] =  array_end
-        self.big_puff_array[self.store_counter,0:array_end,:] = puff_array
-
-
+        buffered_puff_array = scipy.full((self.anticipated_puffs,4),scipy.nan)
+        buffered_puff_array[0:array_end,:] = puff_array
+        data = {'puff_array':buffered_puff_array,'array_end':array_end}
+        self.logger.add(data)
 
 class ConcentrationStorer(object):
     #A class for storing time-evolving odor concentration data, and retrieving
@@ -621,7 +629,7 @@ class ConcentrationStorer(object):
     puff_spread_rate,
     puff_init_rad,
     puff_mol_amount,
-    cmap='Reds',display_only=False,sparse_store=False):
+    cmap='Reds'):
         #Make sure initial_conc_array has been flipped from the pompy bug
         self.simulation_region = image.get_extent()
         self.dt_store = dt_store
@@ -629,11 +637,7 @@ class ConcentrationStorer(object):
         x_pixels, y_pixels = scipy.shape(initial_conc_array)
         print((x_pixels,y_pixels,int(t_stop/dt_store)))
         n = datetime.datetime.utcnow()
-        if display_only:
-            display_text = 'display'
-        else:
-            display_text = ''
-        self.filename = display_text+'concObject{0}.{1}-{2}:{3}'.format(
+        self.filename = 'concObject{0}.{1}-{2}:{3}'.format(
         n.month,n.day,n.hour,n.minute)
         self.hdf5_filename = self.filename+'.hdf5'
         num_steps = int(t_stop/dt_store)
@@ -649,24 +653,10 @@ class ConcentrationStorer(object):
         'puff_mol_amount':        puff_mol_amount
         }
         self.logger = h5_logger.H5Logger(self.hdf5_filename,param_attr=run_param)
-        #for saving sparse arrays
-        self.store_counter = 0
-        cwd = os.getcwd()
-        self.sparse_store_dir = cwd+'/'+self.filename+'_sparseConc'
-        if sparse_store:
-            try:
-                os.mkdir(self.sparse_store_dir)
-            except(OSError):
-                pass
     def store(self,conc_array):
         data = {'conc_array':conc_array}
         self.logger.add(data)
 
-    def sparse_store(self,sparse_conc_array):
-        self.store_counter+=1
-        scipy.sparse.save_npz(
-        self.sparse_store_dir+'\sparseConc'+str(self.store_counter),
-        sparse_conc_array)
 
 class WindStorer(object):
     #A class for storing time-evolving wind data, and retrieving

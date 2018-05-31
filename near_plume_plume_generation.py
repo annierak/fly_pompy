@@ -11,19 +11,19 @@ import time
 import itertools
 import dill as pickle
 
-output_file = ('test_saved_plumes.pkl')
 
 dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 60. #seconds
+simulation_time = 10. #seconds
 
 
 #Odor arena
 xlim = (-15., 15.)
 ylim = (0., 40.)
-sim_region = models.Rectangle(xlim[0], ylim[0], xlim[1], ylim[1])
+sim_region_tuple = xlim[0], ylim[0], xlim[1], ylim[1]
+sim_region = models.Rectangle(*sim_region_tuple)
 wind_region = models.Rectangle(xlim[0]*1.2,ylim[0]*1.2,
 xlim[1]*1.2,ylim[1]*1.2)
 source_pos = scipy.array([(7.5,25)]).T
@@ -152,11 +152,6 @@ scipy.floor(frame_rate*simulation_time/times_real_time)),
 init_func=init,repeat=False)
 
 plt.show()
-
 #Save the animation to video
-saved = anim.save('plume_saving_test_125.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('plume_saving_test_126.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()
-
-# Save the plumes to pkl
-with open(output_file, 'w') as f:
-        pickle.dump(plumeStorer,f)
