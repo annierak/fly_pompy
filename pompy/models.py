@@ -574,18 +574,24 @@ class ColouredNoiseGenerator(object):
         self._x += dx_dt * dt
 
 class EmpiricalWindField(object):
-    def __init__(self,wind_data_file,wind_dt,dt):
+    def __init__(self,wind_data_file,wind_dt,dt,t_start):
         self.wind_dt = wind_dt
         wind_dct = utility.process_wind_data(wind_data_file,0,wind_dt=5)
         self.wind_speed_vec = scipy.array(wind_dct['wind_speed'])
         self.wind_angle_vec = scipy.array(wind_dct['wind_angle'])
-        self.update_counter = 0
+        if t_start<0:
+            self.update_counter = int(t_start/dt)
+        else:
+            self.update_counter = 0
         self.current_wind_speed = self.wind_speed_vec[0]
         self.current_wind_angle = self.wind_angle_vec[0]
     def update(self,dt):
         t=dt*self.update_counter
         print(t)
-        index = int(scipy.floor(t/self.wind_dt))
+        if t>=0:
+            index = int(scipy.floor(t/self.wind_dt))
+        else:
+            index = 0
         self.current_wind_speed = self.wind_speed_vec[index]
         self.current_wind_angle = self.wind_angle_vec[index]
         self.update_counter +=1
@@ -616,7 +622,8 @@ class PlumeStorer(object):
     def store(self,puff_array):
         array_end = scipy.size(puff_array,0)
         buffered_puff_array = scipy.full((self.anticipated_puffs,4),scipy.nan)
-        buffered_puff_array[0:array_end,:] = puff_array
+        if array_end>0:
+            buffered_puff_array[0:array_end,:] = puff_array
         data = {'puff_array':buffered_puff_array,'array_end':array_end}
         self.logger.add(data)
 

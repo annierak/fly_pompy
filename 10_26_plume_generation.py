@@ -12,15 +12,14 @@ import scipy.sparse
 import sys
 import time
 import itertools
-import cPickle as pickle
 
-output_file = ('test_10_26_saved_plumes.pkl')
 
 dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 30*60. #seconds
+simulation_time = 40*60. #seconds
+t_start = -1*60. #time before fly release
 
 
 #traps
@@ -53,25 +52,28 @@ source_pos = scipy.array([scipy.array(tup) for tup in traps.param['source_locati
 #empirical wind data
 wind_data_file = '2017_10_26_wind_vectors_1_min_pre_60_min_post_release.csv'
 wind_dt = 5
-observedWind = models.EmpiricalWindField(wind_data_file,wind_dt,dt)
+observedWind = models.EmpiricalWindField(wind_data_file,wind_dt,dt,t_start)
 
 #wind model setup
 aspect_ratio= (xlim[1]-xlim[0])/(ylim[1]-ylim[0])
 noise_gain=3.
 noise_damp=0.071
 noise_bandwidth=0.71
-wind_grid_density = 30
-Kx = Ky = 30
+wind_grid_density = 200
+Kx = Ky = 5000
 wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
 wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
 noise_bandwidth=noise_bandwidth, EmpiricalWindField=observedWind,Kx=Kx,Ky=Ky)
 
 # Set up plume model
 centre_rel_diff_scale = 2.
-puff_release_rate = 20
+puff_release_rate = 0.001
+# puff_release_rate = 10
 puff_spread_rate=0.005
 puff_init_rad = 0.01
-max_num_puffs=100000
+# max_num_puffs=100000
+max_num_puffs=100
+
 plume_model = models.PlumeModel(
     sim_region, source_pos, wind_field,
     centre_rel_diff_scale=centre_rel_diff_scale,
@@ -135,16 +137,22 @@ puff_mol_amount)
 plumeStorer = models.PlumeStorer(plume_model,capture_interval*dt,
 simulation_time)
 
-#Display initial wind vector field
+#Display initial wind vector field -- subsampled from total
 velocity_field = wind_field.velocity_field
 u,v = velocity_field[:,:,0],velocity_field[:,:,1]
+full_size = scipy.shape(u)[0]
+shrink_factor = 10
+u,v = u[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor],\
+    v[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor]
 x_origins,y_origins = wind_field.x_points,wind_field.y_points
+x_origins,y_origins = x_origins[0:full_size-1:shrink_factor],\
+    y_origins[0:full_size-1:shrink_factor]
 coords = scipy.array(list(itertools.product(x_origins, y_origins)))
 x_coords,y_coords = coords[:,0],coords[:,1]
 vector_field = ax.quiver(x_coords,y_coords,u,v)
 
 #Display observed wind direction
-arrow_magn = (xmax-xmin)/20
+arrow_magn = (xmax-xmin)/10
 x_wind,y_wind = observedWind.current_value()
 wind_arrow = matplotlib.patches.FancyArrowPatch(posA=(
 xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),posB=
@@ -168,8 +176,7 @@ def init():
 t = 0.
 # Define animation update function
 def update(i):
-    global t
-
+    global t, arrow_magn, shrink_factor, full_size
     for k in range(capture_interval):
         observedWind.update(dt)
         wind_field.update(dt)
@@ -178,8 +185,9 @@ def update(i):
 
     velocity_field = wind_field.velocity_field
     u,v = velocity_field[:,:,0],velocity_field[:,:,1]
+    u,v = u[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor],\
+        v[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor]
     vector_field.set_UVC(u,v)
-    arrow_magn = 4
     x_wind,y_wind = observedWind.current_value()
     wind_arrow.set_positions((xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),
     (xmin+(xmax-xmin)/2+arrow_magn*x_wind,
@@ -201,15 +209,11 @@ def update(i):
 
 # Run and save output to video
 anim = FuncAnimation(fig, update, frames=int(
-frame_rate*simulation_time/times_real_time),
+frame_rate*(simulation_time-t_start)/times_real_time),
 init_func=init,repeat=False)
 
 # plt.show()
 
 #Save the animation to video
-saved = anim.save('big_plume_saving_test_1.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('full_size_explosion_testing.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()
-print('here')
-#Save the plumes to pkl
-with open(output_file, 'w') as f:
-        pickle.dump(plumeStorer,f)

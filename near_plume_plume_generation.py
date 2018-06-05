@@ -14,9 +14,10 @@ import dill as pickle
 
 dt = 0.01
 frame_rate = 20
-times_real_time = 5 # seconds of simulation / sec in video
+times_real_time = 3 # seconds of simulation / sec in video
 capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 10. #seconds
+simulation_time = 10.*60 #seconds
+t_start = 0.#-5*60. #time before fly release
 
 
 #Odor arena
@@ -33,7 +34,7 @@ source_pos = scipy.array([(7.5,25)]).T
 #empirical wind data
 wind_data_file = '2017_10_26_wind_vectors_1_min_pre_60_min_post_release.csv'
 wind_dt = 5
-observedWind = models.EmpiricalWindField(wind_data_file,wind_dt,dt)
+observedWind = models.EmpiricalWindField(wind_data_file,wind_dt,dt,t_start)
 
 #wind model setup
 aspect_ratio= (xlim[1]-xlim[0])/(ylim[1]-ylim[0])
@@ -41,14 +42,14 @@ noise_gain=3.
 noise_damp=0.071
 noise_bandwidth=0.71
 wind_grid_density = 15
-Kx = Ky = 30
+Kx = Ky = 100
 wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
 wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
 noise_bandwidth=noise_bandwidth, EmpiricalWindField=observedWind,Kx=Kx,Ky=Ky)
 
 # Set up plume model
 centre_rel_diff_scale = 2.
-puff_release_rate = 20
+puff_release_rate = 0.1
 puff_spread_rate=0.005
 puff_init_rad = 0.01
 max_num_puffs=100000
@@ -148,10 +149,11 @@ def update(i):
 
 # Run and save output to video
 anim = FuncAnimation(fig, update, frames=int(
-scipy.floor(frame_rate*simulation_time/times_real_time)),
+scipy.floor(frame_rate*(simulation_time-t_start)/times_real_time)),
 init_func=init,repeat=False)
 
 plt.show()
 #Save the animation to video
-saved = anim.save('plume_saving_test_126.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('larger_Kx_test_100.mp4',
+ dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()
