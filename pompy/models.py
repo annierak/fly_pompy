@@ -237,19 +237,19 @@ class PlumeModel(object):
     def update(self, dt):
         """Perform time-step update of plume model with Euler integration."""
         # add more puffs (stochastically) if enough capacity
-        if len(self.puffs) < self.max_num_puffs*self.unique_sources:
+        # if len(self.puffs) < self.max_num_puffs*self.unique_sources:
+        #UPDATE 7/17/18: I am REMOVING the puff cap.
             # puff release modelled as Poisson process at fixed mean rate
             # with number to release clipped if it would otherwise exceed
             # the maximum allowed
-
             #****Draw separately for each trap
-            for j in range(self.unique_sources):
-                num_to_release = self.prng.poisson(self.puff_release_rate*dt)
-                num_to_release = min(num_to_release,
-                                 self.max_num_puffs - len(self.puffs))
-                for i in range(num_to_release):
-                    self.puffs.append(Puff(self.source_pos[0,j],
-                    self.source_pos[1,j],self.source_z,self.puff_init_rad**2))
+        for j in range(self.unique_sources):
+            num_to_release = self.prng.poisson(self.puff_release_rate*dt)
+            num_to_release = min(num_to_release,
+                             self.max_num_puffs - len(self.puffs))
+            for i in range(num_to_release):
+                self.puffs.append(Puff(self.source_pos[0,j],
+                self.source_pos[1,j],self.source_z,self.puff_init_rad**2))
 
         # initialise empty list for puffs that have not left simulation area
         alive_puffs = []
