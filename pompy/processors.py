@@ -10,7 +10,8 @@ __license__ = 'MIT'
 
 import math
 import numpy as np
-
+from collections import defaultdict
+import itertools
 
 class ConcentrationValueCalculator(object):
 
@@ -26,7 +27,7 @@ class ConcentrationValueCalculator(object):
         puff_mol_amount : float
             Molecular content of each puff (e.g. in moles or raw number of
             molecules). This is conserved as the puff is transported within
-            the plume but the puff becomes increasingly diffuse as it's radius
+            the plume but the puff becomes increasingly diffuse as its radius
             grows due to diffusion.
         """
         # precompute constant used to scale Gaussian amplitude
@@ -109,6 +110,127 @@ class ConcentrationValueCalculator(object):
         return self._puff_conc_dist(x[:, :, na], y[:, :, na], z,
                                     px[na, na, :], py[na, na, :],
                                     pz[na, na, :], r_sq[na, na, :]).sum(-1)
+class ConcentrationValueFastCalculator(object):
+        """
+        Calculates odour concentration values at points in simulation region from
+        puff property arrays, using O(N+M) approximation algorithm for speed improvement.
+        """
+        def __init__(self,box_min,box_max,r_sq_max,epsilon,puff_mol_amt,N):
+            #bounds = box_min,box_max
+            self.grid = ConcentrationGrid(box_min,box_max,r_sq_max,epsilon,N)
+            self.neighbors_dct = defaultdict(list)
+            for (i,j) in list(itertools.product(range(self.grid.grid_max),\
+                range(self.grid.grid_max))):
+            #Find all the boxes 1 box away from the target's box:
+            #these sources considered
+                self.neighbors_dct[(i,j)] = self.grid.obtain_box_neighbors(i,j)
+            self.puff_mol_amt = puff_mol_amt
+
+        def compute_Gaussian(self,px,py,r_sq,x,y):
+                return(self.puff_mol_amt/(np.sqrt(8*np.pi**3)*(
+                    r_sq**1.5)))*np.exp(-1*(((px-x)**2+(py-y)**2)/(2*r_sq)))
+
+        def calc_conc_list(self, puff_array, x, y, z=0):
+            px, py, pz, r_sq = puff_array[~np.isnan(puff_array[:, 0]), :].T
+            source_loc = np.array([px,py]).T
+            target_loc = np.array([x,y]).T
+            target_values = np.zeros(len(x))
+            source_boxes = self.grid.assign_box(source_loc)
+            source_grid_dict = defaultdict(list)
+            for source_box,source,source_r_sq in zip(source_boxes,source_loc,r_sq):
+                #find what box it's in--value is a list: [source_x,source_y,r_sq]
+                source_grid_dict[tuple(source_box)].append(
+                    [source[0],source[1],source_r_sq])
+            #do the same for all the targets -- also collect the target index
+            target_boxes = self.grid.assign_box(target_loc)
+            target_grid_dict = defaultdict(list)
+            for target_box,target_loc,target_index in zip(
+                target_boxes,target_loc,range(len(x))):
+                target_grid_dict[tuple(target_box)].append(
+                    [target_loc[0],target_loc[1],target_index])
+            na = np.newaxis
+            #Loop through the grid boxes
+            for (i,j) in list(itertools.product(range(
+                self.grid.grid_max),range(self.grid.grid_max))):
+            #Find all the boxes 1 box away from the target's box: these sources considered
+                relevant_targets = target_grid_dict[(i,j)]
+                if len(relevant_targets)>0: #only proceed if there are targets in the box
+                    target_x,target_y,target_indices = np.array(relevant_targets).T
+                    target_x,target_y = target_x[:,na],target_y[:,na]
+                    relevant_sources = tuple(
+                        source_grid_dict[neighbor] for neighbor in self.neighbors_dct[(i,j)]
+                        if len(source_grid_dict[neighbor])>0)
+                    #only proceed if there are sources in the neighbor set
+                    if len(relevant_sources)>0:
+                        source_x,source_y,r_sq = np.concatenate(relevant_sources,0).T
+                        source_x,source_y,r_sq = source_x[na,:],source_y[na,:],r_sq[na,:]
+                    #For targets, only those in the box, not the neighbor boxes
+                        output_array =  self.compute_Gaussian(
+                            source_x,source_y,r_sq,target_x,target_y).sum(1)
+                        target_values[target_indices.astype(int)] = output_array
+                    else:
+                        pass
+                else:
+                    pass
+            return target_values
+
+
+
+
+
+
+
+
+class ConcentrationGrid(object):
+    """
+    A helper class to be used with ConcentrationValueFastCalculator;
+    this is initialized at the beginning of the fly simulation and passed
+    to the ConcentrationValueFastCalculator.
+
+    Produces a grid on given square with unit size given by the
+    largest s < R such that (1/R)*s = square width
+
+    R, which depends on r_sq_max and epsilon, is the largest possible grid
+    width such that
+    in the worst case scenario, where all sources have variance r_sq_max,
+    the sum total odor contribution to a given target
+    from all sources outside the target's immediate neighbor boxes
+    is less than epsilon.
+    """
+    def __init__(self,box_min,box_max,r_sq_max,epsilon,N):
+        self.bounds = np.array([[box_min,box_max],[box_min,box_max]])
+        self.R = np.sqrt(-1*np.log(epsilon*(r_sq_max**1.5)*np.sqrt(8*np.pi**3)/(N))*2*r_sq_max)
+        n_boxes = int(math.ceil((box_max-box_min)/self.R))
+        self.unit_width = 1/n_boxes
+        self.grid_min = 0
+        self.grid_max = n_boxes
+
+
+    def assign_box(self,location): #1D--combine to 2D
+        return (np.floor((location-self.bounds[:,0])/self.R)).astype(int)
+
+
+    def obtain_box_neighbors(self,x,y): #2d grid neighbors of a given grid coord
+        if ((self.grid_min <= x <= self.grid_max-1) and (
+            self.grid_min <= y <= self.grid_max-1)):
+            xs,ys = np.meshgrid(
+                np.array([x-1,x,x+1]),np.array([y-1,y,y+1]))
+            neighbors = np.array([xs,ys])
+            #this is an array that is 2 x 3 x 3
+            if self.grid_max-1==x:
+                neighbors = neighbors[:,:,:-1]
+            if self.grid_min==x:
+                neighbors = neighbors[:,:,1:]
+            if self.grid_min==y:
+                neighbors = neighbors[:,1:,:]
+            if self.grid_max-1==y:
+                neighbors = neighbors[:,:-1,:]
+            neighbors = np.squeeze(np.reshape(neighbors,(2,-1,1)))
+            return list(zip(neighbors[0,:],neighbors[1,:]))
+        else:
+            print('Grid neighbor error: provided box not in big box')
+            sys.exit()
+
 
 
 class ConcentrationArrayGenerator(object):

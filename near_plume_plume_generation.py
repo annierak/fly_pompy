@@ -14,10 +14,10 @@ import dill as pickle
 
 dt = 0.01
 frame_rate = 20
-times_real_time = 3 # seconds of simulation / sec in video
-capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 10.*60 #seconds
-t_start = 0.#-5*60. #time before fly release
+times_real_time = 5 # seconds of simulation / sec in video
+capture_interval = int(scipy.ceil(times_real_time*((1./frame_rate)/dt)))
+simulation_time = 1.5*60 #seconds
+t_start = -10.#-5*60. #time before fly release
 
 
 #Odor arena
@@ -30,31 +30,8 @@ xlim[1]*1.2,ylim[1]*1.2)
 source_pos = scipy.array([(7.5,25)]).T
 
 #wind setup
-
-#empirical wind data
-wind_data_file = '2017_10_26_wind_vectors_1_min_pre_60_min_post_release.csv'
-wind_dt = 5
-observedWind = models.EmpiricalWindField(wind_data_file,wind_dt,dt,t_start)
-
-#wind model setup
-aspect_ratio= (xlim[1]-xlim[0])/(ylim[1]-ylim[0])
-noise_gain=3.
-noise_damp=0.071
-noise_bandwidth=0.71
-wind_grid_density = 15
-Kx = Ky = 100
-wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
-wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
-noise_bandwidth=noise_bandwidth, EmpiricalWindField=observedWind,Kx=Kx,Ky=Ky)
-
-# Set up plume model
-centre_rel_diff_scale = 2.
-puff_release_rate = 0.1
-puff_spread_rate=0.005
-puff_init_rad = 0.01
-max_num_puffs=100000
-plume_model = models.PlumeModel(
-    sim_region, source_pos, wind_field,
+diff_eq = True #this is the parameter that affects whether a PDE is solved
+#to determine the wind field or if it's just the empirical value
     centre_rel_diff_scale=centre_rel_diff_scale,
     puff_release_rate=puff_release_rate,
     puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
@@ -65,6 +42,9 @@ array_z = 0.01
 array_dim_x = 1000
 array_dim_y = 1000
 puff_mol_amount = 1.
+
+
+
 array_gen = processors.ConcentrationArrayGenerator(
     sim_region, array_z, array_dim_x, array_dim_y, puff_mol_amount)
 
@@ -98,6 +78,7 @@ simulation_time)
 
 #Display initial wind vector field
 velocity_field = wind_field.velocity_field
+
 u,v = velocity_field[:,:,0],velocity_field[:,:,1]
 x_origins,y_origins = wind_field.x_points,wind_field.y_points
 coords = scipy.array(list(itertools.product(x_origins, y_origins)))
@@ -154,6 +135,6 @@ init_func=init,repeat=False)
 
 plt.show()
 #Save the animation to video
-saved = anim.save('larger_Kx_test_100.mp4',
+saved = anim.save('negative_time.mp4',
  dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()

@@ -14,12 +14,12 @@ import time
 import itertools
 
 
-dt = 0.01
+dt = 0.25
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
-capture_interval = times_real_time*int((1./frame_rate)/dt)
-simulation_time = 40*60. #seconds
-t_start = -1*60. #time before fly release
+capture_interval = int(scipy.ceil(times_real_time*((1./frame_rate)/dt)))
+simulation_time = 10.*60. #seconds
+t_start = -2*60. #time before fly release
 
 
 #traps
@@ -48,6 +48,7 @@ xlim[1]*1.2,ylim[1]*1.2)
 source_pos = scipy.array([scipy.array(tup) for tup in traps.param['source_locations']]).T
 
 #wind setup
+diff_eq = False
 
 #empirical wind data
 wind_data_file = '2017_10_26_wind_vectors_1_min_pre_60_min_post_release.csv'
@@ -60,18 +61,19 @@ noise_gain=3.
 noise_damp=0.071
 noise_bandwidth=0.71
 wind_grid_density = 200
-Kx = Ky = 5000
+Kx = Ky = 10000 #highest value observed to not cause explosion: 10000
 wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
 wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
-noise_bandwidth=noise_bandwidth, EmpiricalWindField=observedWind,Kx=Kx,Ky=Ky)
+noise_bandwidth=noise_bandwidth, EmpiricalWindField=observedWind,Kx=Kx,Ky=Ky,
+diff_eq=diff_eq)
 
 # Set up plume model
 centre_rel_diff_scale = 2.
-puff_release_rate = 0.001
-# puff_release_rate = 10
+# puff_release_rate = 0.001
+puff_release_rate = 10
 puff_spread_rate=0.005
 puff_init_rad = 0.01
-# max_num_puffs=100000
+# max_num_puffs=10000000
 max_num_puffs=100
 
 plume_model = models.PlumeModel(
@@ -215,5 +217,5 @@ init_func=init,repeat=False)
 # plt.show()
 
 #Save the animation to video
-saved = anim.save('full_size_explosion_testing.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('few_puffs_6_6.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()

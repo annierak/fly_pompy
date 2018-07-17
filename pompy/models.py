@@ -262,7 +262,13 @@ class PlumeModel(object):
             # approximate centre-line relative puff transport velocity
             # component as being a (Gaussian) white noise process scaled by
             # constants
-            filament_diff_vel = (self.prng.normal(size=self._vel_dim) *
+            if dt ==0.01:
+                noise_scale = 1
+            elif dt==0.25:
+                noise_scale = 0.3
+            else:
+                print('diffusion not programmed for this dt value')
+            filament_diff_vel = noise_scale*(self.prng.normal(size=self._vel_dim) *
                                  self.centre_rel_diff_scale)
             vel = wind_vel + filament_diff_vel
             # update puff position using Euler integration
@@ -303,11 +309,13 @@ class WindModel(object):
     plus coloured noise. For each of the field components these are calculated
     for the four corners of the simulated region and then linearly
     interpolated over the edges.
+
+
     """
 
     def __init__(self, sim_region, nx=15, ny=15,  Kx=2.,
                  Ky=2., noise_gain=5., noise_damp=0.2, noise_bandwidth=0.2,
-                 noise_rand=np.random,EmpiricalWindField=None):
+                 noise_rand=np.random,EmpiricalWindField=None,diff_eq=True):
         """
         Parameters
         ----------
@@ -343,7 +351,10 @@ class WindModel(object):
             Defaults to numpy.random global generator however a specific
             RandomState can be set if it is desired to have reproducible
             output.
+        diff_eq : If false, just reduces this object to spitting out
+        empirical wind values.
         """
+        self.diff_eq = diff_eq
         self.EmpiricalWindField = EmpiricalWindField
         # store grid parameters interally
         self._dx = abs(sim_region.w) / (nx-1)  # x grid point spacing
@@ -354,11 +365,14 @@ class WindModel(object):
         self._Bx = Kx / (2.*self._dx**2)
         self._By = Ky / (2.*self._dy**2)
         self._C = 2. * (self._Bx + self._By)
+
+
+
         # initialise wind velocity field to mean values
         # +2s are to account for boundary grid points
-        u_av,v_av = EmpiricalWindField.current_value()
-        self._u = np.ones((nx+2, ny+2)) * u_av
-        self._v = np.ones((nx+2, ny+2)) * v_av
+        self.u_av,self.v_av = EmpiricalWindField.current_value()
+        self._u = np.ones((nx+2, ny+2)) * self.u_av
+        self._v = np.ones((nx+2, ny+2)) * self.v_av
         # create views on to field interiors (i.e. not including boundaries)
         # for notational ease - note this does NOT copy any data
         self._u_int = self._u[1:-1, 1:-1]
@@ -371,7 +385,7 @@ class WindModel(object):
                                                 noise_bandwidth, noise_gain,
                                                 noise_rand)
         # preassign array of corner means values
-        self._corner_means = np.array([u_av, v_av]).repeat(4)
+        self._corner_means = np.array([self.u_av, self.v_av]).repeat(4)
         # precompute linear ramp arrays with size of boundary edges for
         # linear interpolation of corner values
         self._rx = np.linspace(0., 1., nx+2)
@@ -404,7 +418,16 @@ class WindModel(object):
     @property
     def velocity_field(self):
         """Current calculated velocity field across simulated grid points."""
-        return np.dstack((self._u_int, self._v_int))
+        if self.diff_eq:
+            return np.dstack((self._u_int, self._v_int))
+        else:
+            velocity_field = scipy.zeros((
+            scipy.shape(self._u_int)[0],
+            scipy.shape(self._u_int)[1],
+            2))
+            velocity_field[:,:,0] = self.u_av
+            velocity_field[:,:,1] = self.v_av
+            return velocity_field
 
     def velocity_at_pos(self, x, y):
         """
@@ -427,9 +450,11 @@ class WindModel(object):
             Velocity field (2D) values evaluated at specified point(s).
             (dimensionality: length/time)
         """
-        return np.array([float(self._interp_u(x, y)),
+        if self.diff_eq:
+            return np.array([float(self._interp_u(x, y)),
                          float(self._interp_v(x, y))])
-
+        else:
+            return scipy.array([self.u_av,self.v_av])
 
     def update(self, dt):
         """
@@ -445,45 +470,46 @@ class WindModel(object):
         """
 
         #update corner means to reflect changing observed wind
-        u_av,v_av = self.EmpiricalWindField.current_value()
-        self._corner_means = np.array([u_av, v_av]).repeat(4)
+        self.u_av,self.v_av = self.EmpiricalWindField.current_value()
+        if self.diff_eq:
+            self._corner_means = np.array([self.u_av, self.v_av]).repeat(4)
 
-        # update boundary values
-        self._apply_boundary_conditions(dt)
-        # initialise wind speed derivative arrays
-        du_dt = np.zeros((self.nx, self.ny))
-        dv_dt = np.zeros((self.nx, self.ny))
-        # approximate spatial first derivatives with centred finite difference
-        # equations for both components of wind field
-        du_dx, du_dy = self._centred_first_derivs(self._u)
-        dv_dx, dv_dy = self._centred_first_derivs(self._v)
-        # calculate centred first sums i.e. sf_x = f(x+dx,y)+f(x-dx,y) and
-        # sf_y = f(x,y+dy)-f(x,y-dy) as first step in approximating spatial
-        # second derivatives with second order finite difference equations
-        #   d2f/dx2 ~ [f(x+dx,y)-2f(x,y)+f(x-dx,y)] / (dx*dx)
-        #           = [sf_x-2f(x,y)] / (dx*dx)
-        #   d2f/dy2 ~ [f(x,y+dy)-2f(x,y)+f(x,y-dy)] / (dy*dy)
-        #           = [sf_y-2f(x,y)] / (dy*dy)
-        # second finite differences are not computed in full as the common
-        # f(x,y) term in both expressions can be extracted out to reduce
-        # the number of +/- operations required
-        su_x, su_y = self._centred_first_sums(self._u)
-        sv_x, sv_y = self._centred_first_sums(self._v)
-        # use finite difference method to approximate time derivatives across
-        # simulation region interior from defining PDEs
-        #     du/dt = -(u*du/dx + v*du/dy) + 0.5*Kx*d2u/dx2 + 0.5*Ky*d2u/dy2
-        #     dv/dt = -(u*dv/dx + v*dv/dy) + 0.5*Kx*d2v/dx2 + 0.5*Ky*d2v/dy2
-        du_dt = (-self._u_int * du_dx - self._v_int * du_dy +
-                 self._Bx * su_x + self._By * su_y -
-                 self._C * self._u_int)
-        dv_dt = (-self._u_int * dv_dx - self._v_int * dv_dy +
-                 self._Bx * sv_x + self._By * sv_y -
-                 self._C * self._v_int)
-        # perform update with Euler integration
-        self._u_int += du_dt * dt
-        self._v_int += dv_dt * dt
-        # update spline interpolators
-        self._set_interpolators()
+            # update boundary values
+            self._apply_boundary_conditions(dt)
+            # initialise wind speed derivative arrays
+            du_dt = np.zeros((self.nx, self.ny))
+            dv_dt = np.zeros((self.nx, self.ny))
+            # approximate spatial first derivatives with centred finite difference
+            # equations for both components of wind field
+            du_dx, du_dy = self._centred_first_derivs(self._u)
+            dv_dx, dv_dy = self._centred_first_derivs(self._v)
+            # calculate centred first sums i.e. sf_x = f(x+dx,y)+f(x-dx,y) and
+            # sf_y = f(x,y+dy)-f(x,y-dy) as first step in approximating spatial
+            # second derivatives with second order finite difference equations
+            #   d2f/dx2 ~ [f(x+dx,y)-2f(x,y)+f(x-dx,y)] / (dx*dx)
+            #           = [sf_x-2f(x,y)] / (dx*dx)
+            #   d2f/dy2 ~ [f(x,y+dy)-2f(x,y)+f(x,y-dy)] / (dy*dy)
+            #           = [sf_y-2f(x,y)] / (dy*dy)
+            # second finite differences are not computed in full as the common
+            # f(x,y) term in both expressions can be extracted out to reduce
+            # the number of +/- operations required
+            su_x, su_y = self._centred_first_sums(self._u)
+            sv_x, sv_y = self._centred_first_sums(self._v)
+            # use finite difference method to approximate time derivatives across
+            # simulation region interior from defining PDEs
+            #     du/dt = -(u*du/dx + v*du/dy) + 0.5*Kx*d2u/dx2 + 0.5*Ky*d2u/dy2
+            #     dv/dt = -(u*dv/dx + v*dv/dy) + 0.5*Kx*d2v/dx2 + 0.5*Ky*d2v/dy2
+            du_dt = (-self._u_int * du_dx - self._v_int * du_dy +
+                     self._Bx * su_x + self._By * su_y -
+                     self._C * self._u_int)
+            dv_dt = (-self._u_int * dv_dx - self._v_int * dv_dy +
+                     self._Bx * sv_x + self._By * sv_y -
+                     self._C * self._v_int)
+            # perform update with Euler integration
+            self._u_int += du_dt * dt
+            self._v_int += dv_dt * dt
+            # update spline interpolators
+            self._set_interpolators()
 
     def _apply_boundary_conditions(self, dt):
         """Applies boundary conditions to wind velocity field."""
