@@ -198,6 +198,13 @@ class PlumeModel(object):
             RandomState can be set if it is desired to have reproducible
             output.
         """
+        #Save a param dictionary to access creation parameters after
+        #the plume model is used and stored.
+        l = locals()
+        self.param = dict([(k,l[k]) for k in ['model_z_disp',
+                     'centre_rel_diff_scale', 'puff_init_rad',
+                     'puff_spread_rate', 'puff_release_rate',
+                     'init_num_puffs', 'max_num_puffs']])
         self.sim_region = sim_region
         self.wind_model = wind_model
         self.source_pos = source_pos
@@ -315,7 +322,8 @@ class WindModel(object):
 
     def __init__(self, sim_region, nx=15, ny=15,  Kx=2.,
                  Ky=2., noise_gain=5., noise_damp=0.2, noise_bandwidth=0.2,
-                 noise_rand=np.random,EmpiricalWindField=None,diff_eq=True):
+                 noise_rand=np.random,EmpiricalWindField=None,diff_eq=True,
+                 angle=None):
         """
         Parameters
         ----------
@@ -356,6 +364,9 @@ class WindModel(object):
         """
         self.diff_eq = diff_eq
         self.EmpiricalWindField = EmpiricalWindField
+        self.angle = angle
+        if (self.angle==None) and (self.EmpiricalWindField==None):
+            raise ValueError('Wind model object requires either a constant wind angle or an EmpiricalWindField data object')
         # store grid parameters interally
         self._dx = abs(sim_region.w) / (nx-1)  # x grid point spacing
         self._dy = abs(sim_region.h) / (ny-1)  # y grid point spacing
@@ -370,7 +381,10 @@ class WindModel(object):
 
         # initialise wind velocity field to mean values
         # +2s are to account for boundary grid points
-        self.u_av,self.v_av = EmpiricalWindField.current_value()
+        if self.EmpiricalWindField is not None:
+            self.u_av,self.v_av = self.EmpiricalWindField.current_value()
+        else:
+            self.u_av,self.v_av = np.cos(self.angle),np.sin(self.angle)
         self._u = np.ones((nx+2, ny+2)) * self.u_av
         self._v = np.ones((nx+2, ny+2)) * self.v_av
         # create views on to field interiors (i.e. not including boundaries)
@@ -470,7 +484,10 @@ class WindModel(object):
         """
 
         #update corner means to reflect changing observed wind
-        self.u_av,self.v_av = self.EmpiricalWindField.current_value()
+        if self.EmpiricalWindField is not None:
+            self.u_av,self.v_av = self.EmpiricalWindField.current_value()
+        else:
+            self.u_av,self.v_av = np.cos(self.angle),np.sin(self.angle)
         if self.diff_eq:
             self._corner_means = np.array([self.u_av, self.v_av]).repeat(4)
 
@@ -640,8 +657,9 @@ class PlumeStorer(object):
         'num_steps': num_steps, 'dt_store':dt_store,
         'simulation_region': self.sim_region,
         'simulation_time':t_stop}
+        run_param.update(plume_model.param)
         self.logger = h5_logger.H5Logger(self.hdf5_filename,param_attr=run_param)
-        self.anticipated_puffs = int(1e5)
+        self.anticipated_puffs = plume_model.max_num_puffs
         self.puff_array_ends = scipy.full(
         int(scipy.ceil(t_stop/dt_store)),scipy.nan
         )
@@ -668,7 +686,7 @@ class ConcentrationStorer(object):
         self.dt_store = dt_store
         #concentration data stored here, x by y by t
         x_pixels, y_pixels = scipy.shape(initial_conc_array)
-        print((x_pixels,y_pixels,int(t_stop/dt_store)))
+        # print((x_pixels,y_pixels,int(t_stop/dt_store)))
         n = datetime.datetime.utcnow()
         self.filename = 'concObject{0}.{1}-{2}:{3}'.format(
         n.month,n.day,n.hour,n.minute)
@@ -696,7 +714,7 @@ class WindStorer(object):
     #it for use with simulated flies.
     def __init__(self,initial_wind_array,x_points,y_points,dt_store,t_stop,
     wind_grid_density,noise_gain,noise_damp,
-    noise_bandwidth):
+    noise_bandwidth,data_loc=None):
         self.u = initial_wind_array[:,:,0]
         self.v = initial_wind_array[:,:,1]
         self.dt_store = dt_store
@@ -712,9 +730,10 @@ class WindStorer(object):
         'wind_grid_density':wind_grid_density,
         'noise_gain':noise_gain,
         'noise_damp':noise_damp,
-        'noise_bandwidth':noise_bandwidth
+        'noise_bandwidth':noise_bandwidth,
+        'data_loc':data_loc
         }
-        print(y_points)
+        # print(y_points)
         self.logger = h5_logger.H5Logger(self.filename,param_attr=run_param)
 
     def store(self,velocity_field):

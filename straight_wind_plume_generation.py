@@ -19,8 +19,6 @@ frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = int(scipy.ceil(times_real_time*((1./frame_rate)/dt)))
 simulation_time = 50.*60. #seconds
-# simulation_time = 2.*60. #seconds
-# t_start = -2*60. #time before fly release
 t_start = -20*60. #time before fly release
 
 
@@ -49,15 +47,9 @@ xlim[1]*1.2,ylim[1]*1.2)
 
 source_pos = scipy.array([scipy.array(tup) for tup in traps.param['source_locations']]).T
 
-#wind setup
-diff_eq = True
-
-#empirical wind data
-wind_data_file = '2017_10_26_wind_vectors_1_min_pre_60_min_post_release.csv'
-wind_dt = 5
-observedWind = models.EmpiricalWindField(wind_data_file,wind_dt,dt,t_start)
-
 #wind model setup
+diff_eq = True
+constant_wind_angle = 7*scipy.pi/4
 aspect_ratio= (xlim[1]-xlim[0])/(ylim[1]-ylim[0])
 noise_gain=3.
 noise_damp=0.071
@@ -66,8 +58,9 @@ wind_grid_density = 200
 Kx = Ky = 10000 #highest value observed to not cause explosion: 10000
 wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
 wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
-noise_bandwidth=noise_bandwidth, EmpiricalWindField=observedWind,Kx=Kx,Ky=Ky,
-diff_eq=diff_eq)
+noise_bandwidth=noise_bandwidth,Kx=Kx,Ky=Ky,
+diff_eq=diff_eq,angle=constant_wind_angle)
+
 
 # Set up plume model
 centre_rel_diff_scale = 2.
@@ -124,6 +117,10 @@ vmin,vmax = 0.,5.
 conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
 vmin=vmin, vmax=vmax, cmap='Reds')
 
+#Initialize stored plume object
+plumeStorer = models.PlumeStorer(plume_model,capture_interval*dt,
+simulation_time)
+
 #Initialize stored concentration array object for display
 concStorer = models.ConcentrationStorer(conc_array.T[::-1],
 conc_im,
@@ -133,9 +130,6 @@ puff_spread_rate,
 puff_init_rad,
 puff_mol_amount)
 
-#Initialize stored plume object
-plumeStorer = models.PlumeStorer(plume_model,capture_interval*dt,
-simulation_time)
 
 #Display initial wind vector field -- subsampled from total
 velocity_field = wind_field.velocity_field
@@ -153,7 +147,7 @@ vector_field = ax.quiver(x_coords,y_coords,u,v)
 
 #Display observed wind direction
 arrow_magn = (xmax-xmin)/10
-x_wind,y_wind = observedWind.current_value()
+x_wind,y_wind = scipy.cos(constant_wind_angle),scipy.sin(constant_wind_angle)
 wind_arrow = matplotlib.patches.FancyArrowPatch(posA=(
 xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),posB=
 (xmin+(xmax-xmin)/2+arrow_magn*x_wind,
@@ -165,7 +159,7 @@ plt.gca().add_patch(wind_arrow)
 windStorer = models.WindStorer(wind_field.velocity_field,
 wind_field.x_points,wind_field.y_points,capture_interval*dt,simulation_time,
 wind_grid_density,noise_gain,noise_damp,
-noise_bandwidth,data_loc=wind_data_file)
+noise_bandwidth)
 
 
 def init():
@@ -178,17 +172,17 @@ t = 0.
 def update(i):
     global t, arrow_magn, shrink_factor, full_size
     for k in range(capture_interval):
-        observedWind.update(dt)
         wind_field.update(dt)
         plume_model.update(dt)
         t+=dt
+        print(t)
 
     velocity_field = wind_field.velocity_field
     u,v = velocity_field[:,:,0],velocity_field[:,:,1]
     u,v = u[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor],\
         v[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor]
     vector_field.set_UVC(u,v)
-    x_wind,y_wind = observedWind.current_value()
+    x_wind,y_wind = scipy.cos(constant_wind_angle),scipy.sin(constant_wind_angle)
     wind_arrow.set_positions((xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),
     (xmin+(xmax-xmin)/2+arrow_magn*x_wind,
     ymax-0.2*(ymax-ymin)+arrow_magn*y_wind))
@@ -215,5 +209,5 @@ init_func=init,repeat=False)
 # plt.show()
 
 #Save the animation to video
-saved = anim.save('no_cap_725.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
+saved = anim.save('straight_wind.mp4', dpi=100, fps=frame_rate, extra_args=['-vcodec', 'libx264'])
 # concStorer.finish_filling()

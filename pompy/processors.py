@@ -83,6 +83,7 @@ class ConcentrationValueCalculator(object):
         # convenience
         px, py, pz, r_sq = puff_array[~np.isnan(puff_array[:, 0]), :].T
         na = np.newaxis
+
         return self._puff_conc_dist(x[:, na], y[:, na], z, px[na, :],
                                     py[na, :], pz[na, :], r_sq[na, :]).sum(-1)
 
@@ -125,22 +126,26 @@ class ConcentrationValueFastCalculator(object):
             #these sources considered
                 self.neighbors_dct[(i,j)] = self.grid.obtain_box_neighbors(i,j)
             self.puff_mol_amt = puff_mol_amt
+            self._ampl_const = puff_mol_amt / (8 * np.pi**3)**0.5
 
-        def compute_Gaussian(self,px,py,r_sq,x,y):
-                return(self.puff_mol_amt/(np.sqrt(8*np.pi**3)*(
-                    r_sq**1.5)))*np.exp(-1*(((px-x)**2+(py-y)**2)/(2*r_sq)))
+
+        def compute_Gaussian(self,px,py,pz,r_sq,x,y):
+            return (
+                self._ampl_const / r_sq**1.5 *
+                np.exp(-((x - px)**2 + (y - py)**2 + (0 - pz)**2) / (2 * r_sq))
+            )
 
         def calc_conc_list(self, puff_array, x, y, z=0):
             px, py, pz, r_sq = puff_array[~np.isnan(puff_array[:, 0]), :].T
-            source_loc = np.array([px,py]).T
+            source_loc = np.array([px,py,pz]).T
             target_loc = np.array([x,y]).T
             target_values = np.zeros(len(x))
-            source_boxes = self.grid.assign_box(source_loc)
+            source_boxes = self.grid.assign_box(source_loc[:,0:2])
             source_grid_dict = defaultdict(list)
             for source_box,source,source_r_sq in zip(source_boxes,source_loc,r_sq):
                 #find what box it's in--value is a list: [source_x,source_y,r_sq]
                 source_grid_dict[tuple(source_box)].append(
-                    [source[0],source[1],source_r_sq])
+                    [source[0],source[1],source[2],source_r_sq])
             #do the same for all the targets -- also collect the target index
             target_boxes = self.grid.assign_box(target_loc)
             target_grid_dict = defaultdict(list)
@@ -162,11 +167,11 @@ class ConcentrationValueFastCalculator(object):
                         if len(source_grid_dict[neighbor])>0)
                     #only proceed if there are sources in the neighbor set
                     if len(relevant_sources)>0:
-                        source_x,source_y,r_sq = np.concatenate(relevant_sources,0).T
-                        source_x,source_y,r_sq = source_x[na,:],source_y[na,:],r_sq[na,:]
+                        source_x,source_y,source_z,r_sq = np.concatenate(relevant_sources,0).T
+                        source_x,source_y,source_z,r_sq = source_x[na,:],source_y[na,:],source_z[na,:],r_sq[na,:]
                     #For targets, only those in the box, not the neighbor boxes
                         output_array =  self.compute_Gaussian(
-                            source_x,source_y,r_sq,target_x,target_y).sum(1)
+                            source_x,source_y,source_z,r_sq,target_x,target_y).sum(1)
                         target_values[target_indices.astype(int)] = output_array
                     else:
                         pass
@@ -204,6 +209,7 @@ class ConcentrationGrid(object):
         self.unit_width = 1/n_boxes
         self.grid_min = 0
         self.grid_max = n_boxes
+        print('num boxes: '+str(n_boxes))
 
 
     def assign_box(self,location): #1D--combine to 2D
