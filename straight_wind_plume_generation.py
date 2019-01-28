@@ -71,8 +71,9 @@ puff_init_rad = 0.01
 max_num_puffs=int(2e5)
 # max_num_puffs=100
 
+
 plume_model = models.PlumeModel(
-    sim_region, source_pos, wind_field,
+    sim_region, source_pos, wind_field,simulation_time,
     centre_rel_diff_scale=centre_rel_diff_scale,
     puff_release_rate=puff_release_rate,
     puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
@@ -100,36 +101,36 @@ text = '0 min 0 sec'
 timer= ax.text(xmax,ymax,text,color='r',horizontalalignment='right')
 
 # Display initial concentration field as image
-conc_array = array_gen.generate_single_array(plume_model.puff_array)
-xmin = sim_region.x_min; xmax = sim_region.x_max
-ymin = sim_region.y_min; ymax = sim_region.y_max
-im_extents = (xmin,xmax,ymin,ymax)
-vmin,vmax = 0.,50.
-conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
-vmin=vmin, vmax=vmax, cmap='Reds')
+# conc_array = array_gen.generate_single_array(plume_model.puff_array)
+# xmin = sim_region.x_min; xmax = sim_region.x_max
+# ymin = sim_region.y_min; ymax = sim_region.y_max
+# im_extents = (xmin,xmax,ymin,ymax)
+# vmin,vmax = 0.,50.
+# conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
+# vmin=vmin, vmax=vmax, cmap='Reds')
 
 #Initialize stored concentration array object
-conc_array = array_gen.generate_single_array(plume_model.puff_array)
-xmin = sim_region.x_min; xmax = sim_region.x_max
-ymin = sim_region.y_min; ymax = sim_region.y_max
-im_extents = (xmin,xmax,ymin,ymax)
-vmin,vmax = 0.,5.
-conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
-vmin=vmin, vmax=vmax, cmap='Reds')
+# conc_array = array_gen.generate_single_array(plume_model.puff_array)
+# xmin = sim_region.x_min; xmax = sim_region.x_max
+# ymin = sim_region.y_min; ymax = sim_region.y_max
+# im_extents = (xmin,xmax,ymin,ymax)
+# vmin,vmax = 0.,5.
+# conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
+# vmin=vmin, vmax=vmax, cmap='Reds')
 
 #Initialize stored plume object
 plumeStorer = models.PlumeStorer(plume_model,capture_interval*dt,
 simulation_time)
 
-#Initialize stored concentration array object for display
-concStorer = models.ConcentrationStorer(conc_array.T[::-1],
-conc_im,
-capture_interval*dt,simulation_time,vmin,vmax,centre_rel_diff_scale,
-puff_release_rate,
-puff_spread_rate,
-puff_init_rad,
-puff_mol_amount)
-
+# #Initialize stored concentration array object for display
+# concStorer = models.ConcentrationStorer(conc_array.T[::-1],
+# conc_im,
+# capture_interval*dt,simulation_time,vmin,vmax,centre_rel_diff_scale,
+# puff_release_rate,
+# puff_spread_rate,
+# puff_init_rad,
+# puff_mol_amount)
+#
 
 #Display initial wind vector field -- subsampled from total
 velocity_field = wind_field.velocity_field
@@ -174,6 +175,7 @@ def update(i):
     for k in range(capture_interval):
         wind_field.update(dt)
         plume_model.update(dt)
+        # raw_input()
         t+=dt
         print(t)
 

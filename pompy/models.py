@@ -131,7 +131,8 @@ class PlumeModel(object):
     spread in size over time to model fine-scale diffusive processes.
     """
 
-    def __init__(self, sim_region, source_pos, wind_model, model_z_disp=True,
+    def __init__(self, sim_region, source_pos, wind_model, simulation_time,
+                model_z_disp=True,
                  centre_rel_diff_scale=2., puff_init_rad=0.03,
                  puff_spread_rate=0.001, puff_release_rate=10,
                  init_num_puffs=10, max_num_puffs=1000, prng=np.random):
@@ -233,11 +234,17 @@ class PlumeModel(object):
         self.puff_spread_rate = puff_spread_rate
         self.puff_release_rate = puff_release_rate
         self.max_num_puffs = max_num_puffs
-        # initialise puff list with specified number of new puffs
-        self.puffs = list(scipy.ndarray.flatten(scipy.array(
-        [[Puff(source_pos[0,j],source_pos[1,j],self.source_z,puff_init_rad**2) for j in range(self.unique_sources)]
-                      for i in range(init_num_puffs)])))
+        # 1/25/2019: the puff list is an array of size
+        # num_traps x (1.1 x simulation_time x release rate) x 4 (data points per puff)
+        self.puffs = np.full((self.unique_sources,int(np.ceil(1.1*self.puff_release_rate*
+            simulation_time)),4),np.nan)
+        for j in range(self.unique_sources):
+            self.puffs[j,0:init_num_puffs,:] = \
+                np.ones((init_num_puffs,1))*np.array([[source_pos[0,j],source_pos[1,j], \
+                    self.source_z,puff_init_rad**2]])
+        self.last_puff_ind = init_num_puffs
     def report(self):
+        #This should be adjusted for new vectorized puffs
         print('We have '+str(len(self.puffs))+' puffs going on.')
 
 
@@ -249,48 +256,66 @@ class PlumeModel(object):
             # puff release modelled as Poisson process at fixed mean rate
             # with number to release clipped if it would otherwise exceed
             # the maximum allowed
-            #****Draw separately for each trap
+        #Right now the num to release is same across traps
+        num_to_release = self.prng.poisson(self.puff_release_rate*dt)
         for j in range(self.unique_sources):
-            num_to_release = self.prng.poisson(self.puff_release_rate*dt)
-            num_to_release = min(num_to_release,
-                             self.max_num_puffs - len(self.puffs))
-            for i in range(num_to_release):
-                self.puffs.append(Puff(self.source_pos[0,j],
-                self.source_pos[1,j],self.source_z,self.puff_init_rad**2))
+            self.puffs[j,self.last_puff_ind:self.last_puff_ind+num_to_release,:] = \
+                np.ones((num_to_release,1))*np.array([[self.source_pos[0,j],self.source_pos[1,j], \
+                    self.source_z,self.puff_init_rad**2]])
 
-        # initialise empty list for puffs that have not left simulation area
-        alive_puffs = []
-        for puff in self.puffs:
-            # interpolate wind velocity at Puff position from wind model grid
-            # assuming zero wind speed in vertical direction if modelling
-            # z direction dispersion
-            wind_vel = np.zeros(self._vel_dim)
-            wind_vel[:2] = self.wind_model.velocity_at_pos(puff.x, puff.y)
-            # approximate centre-line relative puff transport velocity
-            # component as being a (Gaussian) white noise process scaled by
-            # constants
-            if dt ==0.01:
-                noise_scale = 1
-            elif dt==0.25:
-                noise_scale = 0.3
-            else:
-                print('diffusion not programmed for this dt value')
-            filament_diff_vel = noise_scale*(self.prng.normal(size=self._vel_dim) *
-                                 self.centre_rel_diff_scale)
-            vel = wind_vel + filament_diff_vel
-            # update puff position using Euler integration
-            puff.x += vel[0] * dt
-            puff.y += vel[1] * dt
-            if self.model_z_disp:
-                puff.z += vel[2] * dt
-            # update puff size using Euler integration with second puff
-            # growth model described in paper
-            puff.r_sq += self.puff_spread_rate * dt
-            # only keep puff alive if it is still in the simulated region
-            if self.sim_region.contains(puff.x, puff.y):
-                alive_puffs.append(puff)
-        # store alive puffs only
-        self.puffs = alive_puffs
+        self.last_puff_ind +=num_to_release
+        if dt ==0.01:
+            noise_scale = 1
+        elif dt==0.25:
+            noise_scale = 0.3
+        else:
+            print('diffusion not programmed for this dt value')
+        puffs_active = ~np.isnan(self.puffs)
+        num_active = np.sum(puffs_active[:,:,0])
+        # print(num_active)
+        # print(np.shape(puffs_active))
+        #traps by puffs
+        # interpolate wind velocity at Puff positions from wind model grid
+        # assuming zero wind speed in vertical direction if modelling
+        # z direction dispersion
+        wind_vel = self.wind_model.velocity_at_pos(
+            self.puffs[:,:,0][puffs_active[:,:,0]],
+                self.puffs[:,:,1][puffs_active[:,:,1]])
+        # print(np.shape(puffs_active[:,:,0]))
+        # print(np.shape(self.puffs[puffs_active[:,:,0]]))
+        # print(np.shape(self.puffs[:,:,0][puffs_active[:,:,0]]))
+        # print(wind_vel)
+        # print(np.shape(wind_vel))
+        if self._vel_dim>2:
+            # print('here')
+            wind_vel = np.hstack((wind_vel,np.zeros(num_active)[:,np.newaxis]))
+        # print(np.shape(wind_vel))
+        # approximate centre-line relative puff transport velocity
+        # component as being a (Gaussian) white noise process scaled by
+        # constants
+        filament_diff_vel = noise_scale*(self.prng.normal(size=(num_active,self._vel_dim)) *
+            self.centre_rel_diff_scale)
+        #********** heyyyyyyyyy how about you  make this line above not dependent on the time step
+
+        vel = wind_vel + filament_diff_vel
+
+
+        # update puff position using Euler integration
+        self.puffs[:,:,0][puffs_active[:,:,0]] += vel[:,0] * dt
+        self.puffs[:,:,1][puffs_active[:,:,1]] += vel[:,1] * dt
+        if self.model_z_disp:
+            self.puffs[:,:,2][puffs_active[:,:,2]] += vel[:,2] * dt
+        # update puff size using Euler integration with second puff
+        # growth model described in paper
+        self.puffs[:,:,3][puffs_active[:,:,3]] += self.puff_spread_rate * dt
+
+        # num_traps x 4 (data points per puff) x (1.1 x simulation_time x release rate)
+
+        #set puffs that are not in the simulation region back to nans
+        left_region = (np.abs(self.puffs[:,:,0])>self.sim_region.x_max) | \
+            (np.abs(self.puffs[:,:,1])>self.sim_region.y_max) #size num_traps x (1.1 x simulation_time x release rate)
+        self.puffs[left_region] = np.nan
+        # raw_input()
 
     @property
     def puff_array(self):
@@ -465,10 +490,10 @@ class WindModel(object):
             (dimensionality: length/time)
         """
         if self.diff_eq:
-            return np.array([float(self._interp_u(x, y)),
-                         float(self._interp_v(x, y))])
+            return np.array([self._interp_u.ev(x, y),
+                         self._interp_v.ev(x, y)]).T
         else:
-            return scipy.array([self.u_av,self.v_av])
+            return scipy.array([self.u_av,self.v_av]).T
 
     def update(self, dt):
         """
