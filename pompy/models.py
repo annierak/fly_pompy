@@ -16,7 +16,7 @@ import utility
 import datetime
 import h5_logger
 import os
-
+import time
 
 class Puff(object):
     """
@@ -236,16 +236,13 @@ class PlumeModel(object):
         self.max_num_puffs = max_num_puffs
         # 1/25/2019: the puff list is an array of size
         # num_traps x (1.1 x simulation_time x release rate) x 4 (data points per puff)
-        self.puffs = np.full((self.unique_sources,int(np.ceil(1.1*self.puff_release_rate*
+        self.puffs = np.full((self.unique_sources,int(np.ceil(1.2*self.puff_release_rate*
             simulation_time)),4),np.nan)
         for j in range(self.unique_sources):
             self.puffs[j,0:init_num_puffs,:] = \
                 np.ones((init_num_puffs,1))*np.array([[source_pos[0,j],source_pos[1,j], \
                     self.source_z,puff_init_rad**2]])
         self.last_puff_ind = init_num_puffs
-    def report(self):
-        #This should be adjusted for new vectorized puffs
-        print('We have '+str(len(self.puffs))+' puffs going on.')
 
 
     def update(self, dt):
@@ -272,7 +269,7 @@ class PlumeModel(object):
             print('diffusion not programmed for this dt value')
         puffs_active = ~np.isnan(self.puffs)
         num_active = np.sum(puffs_active[:,:,0])
-        # print(num_active)
+        print(str(num_active)+' puffs active')
         # print(np.shape(puffs_active))
         #traps by puffs
         # interpolate wind velocity at Puff positions from wind model grid
@@ -299,7 +296,6 @@ class PlumeModel(object):
 
         vel = wind_vel + filament_diff_vel
 
-
         # update puff position using Euler integration
         self.puffs[:,:,0][puffs_active[:,:,0]] += vel[:,0] * dt
         self.puffs[:,:,1][puffs_active[:,:,1]] += vel[:,1] * dt
@@ -309,7 +305,7 @@ class PlumeModel(object):
         # growth model described in paper
         self.puffs[:,:,3][puffs_active[:,:,3]] += self.puff_spread_rate * dt
 
-        # num_traps x 4 (data points per puff) x (1.1 x simulation_time x release rate)
+        # num_traps  x (1.1 x simulation_time x release rate) x 4 (data points per puff)
 
         #set puffs that are not in the simulation region back to nans
         left_region = (np.abs(self.puffs[:,:,0])>self.sim_region.x_max) | \
@@ -348,7 +344,7 @@ class WindModel(object):
     def __init__(self, sim_region, nx=15, ny=15,  Kx=2.,
                  Ky=2., noise_gain=5., noise_damp=0.2, noise_bandwidth=0.2,
                  noise_rand=np.random,EmpiricalWindField=None,diff_eq=True,
-                 angle=None):
+                 angle=None,mag=1):
         """
         Parameters
         ----------
@@ -390,6 +386,7 @@ class WindModel(object):
         self.diff_eq = diff_eq
         self.EmpiricalWindField = EmpiricalWindField
         self.angle = angle
+        self.mag = mag
         if (self.angle==None) and (self.EmpiricalWindField==None):
             raise ValueError('Wind model object requires either a constant wind angle or an EmpiricalWindField data object')
         # store grid parameters interally
@@ -402,14 +399,12 @@ class WindModel(object):
         self._By = Ky / (2.*self._dy**2)
         self._C = 2. * (self._Bx + self._By)
 
-
-
         # initialise wind velocity field to mean values
         # +2s are to account for boundary grid points
         if self.EmpiricalWindField is not None:
             self.u_av,self.v_av = self.EmpiricalWindField.current_value()
         else:
-            self.u_av,self.v_av = np.cos(self.angle),np.sin(self.angle)
+            self.u_av,self.v_av = self.mag*np.cos(self.angle),self.mag*np.sin(self.angle)
         self._u = np.ones((nx+2, ny+2)) * self.u_av
         self._v = np.ones((nx+2, ny+2)) * self.v_av
         # create views on to field interiors (i.e. not including boundaries)
@@ -688,12 +683,20 @@ class PlumeStorer(object):
         self.puff_array_ends = scipy.full(
         int(scipy.ceil(t_stop/dt_store)),scipy.nan
         )
-    def store(self,puff_array):
-        array_end = scipy.size(puff_array,0)
-        buffered_puff_array = scipy.full((self.anticipated_puffs,4),scipy.nan)
-        if array_end>0:
-            buffered_puff_array[0:array_end,:] = puff_array
-        data = {'puff_array':buffered_puff_array,'array_end':array_end}
+        self.num_traps = np.shape(plume_model.puffs)[0]
+    def store(self,puffs):
+        puffs_active = ~np.isnan(puffs)
+        num_active = int(np.sum(puffs_active[:,:,0]))
+        buffered_puff_array = scipy.full((
+            self.num_traps,int(np.ceil(self.anticipated_puffs/(np.shape(puffs)[0]))),4),scipy.nan)
+        # time.sleep(1)
+        array_end=0
+        if num_active>0:
+            # print(num_active)
+            array_end = int(np.ceil(num_active/(np.shape(puffs)[0])))
+            buffered_puff_array[:,0:array_end,:] = puffs[:,0:array_end,:]
+
+        data = {'puffs':buffered_puff_array,'array_end':array_end}
         self.logger.add(data)
 
 class ConcentrationStorer(object):
@@ -747,8 +750,9 @@ class WindStorer(object):
         self.x_points = x_points
         self.y_points = y_points
         n = datetime.datetime.utcnow()
-        self.filename = 'windObject{0}.{1}-{2}:{3}.hdf5'.format(
+        self.filename = 'windObject{0}.{1}-{2}:{3}'.format(
         n.month,n.day,n.hour,n.minute)
+        self.hdf5_filename = self.filename+'.hdf5'
         run_param = {
         'dt_store':dt_store, 'simulation_time':t_stop,
         'x_points':x_points.tolist(),'y_points':y_points.tolist(),
@@ -759,7 +763,7 @@ class WindStorer(object):
         'data_loc':data_loc
         }
         # print(y_points)
-        self.logger = h5_logger.H5Logger(self.filename,param_attr=run_param)
+        self.logger = h5_logger.H5Logger(self.hdf5_filename,param_attr=run_param)
 
     def store(self,velocity_field):
         data = {'velocity_field':velocity_field}

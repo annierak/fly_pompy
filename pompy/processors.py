@@ -117,8 +117,10 @@ class ConcentrationValueFastCalculator(object):
         puff property arrays, using O(N+M) approximation algorithm for speed improvement.
         """
         def __init__(self,box_min,box_max,r_sq_max,epsilon,puff_mol_amt,N):
-            #bounds = box_min,box_max
+                    #bounds = box_min,box_max
             self.grid = ConcentrationGrid(box_min,box_max,r_sq_max,epsilon,N)
+            self.box_min = box_min
+            self.box_max = box_max
             self.neighbors_dct = defaultdict(list)
             for (i,j) in list(itertools.product(range(self.grid.grid_max),\
                 range(self.grid.grid_max))):
@@ -135,8 +137,9 @@ class ConcentrationValueFastCalculator(object):
                 np.exp(-((x - px)**2 + (y - py)**2 + (0 - pz)**2) / (2 * r_sq))
             )
 
-        def calc_conc_list(self, puff_array, x, y, z=0):
-            px, py, pz, r_sq = puff_array[~np.isnan(puff_array[:, 0]), :].T
+        def calc_conc_list(self, puffs, x, y, z=0):
+            puffs_reshaped = puffs.reshape(-1,puffs.shape[-1])
+            px, py, pz, r_sq = puffs_reshaped[~np.isnan(puffs_reshaped[:, 0]), :].T
             source_loc = np.array([px,py,pz]).T
             target_loc = np.array([x,y]).T
             target_values = np.zeros(len(x))
@@ -178,12 +181,12 @@ class ConcentrationValueFastCalculator(object):
                 else:
                     pass
             return target_values
-
-
-
-
-
-
+        def calc_conc_display_grid(self, puffs,z=0,nx=1000,ny=1000):
+            conc_array_locs_x,conc_array_locs_y = np.meshgrid(
+                np.linspace(self.box_min,self.box_max,nx),
+                    np.linspace(self.box_min,self.box_max,ny))
+            return self.calc_conc_list(
+                puffs, conc_array_locs_x.flatten(),conc_array_locs_y.flatten(), z).reshape((nx,ny))
 
 
 class ConcentrationGrid(object):
@@ -236,7 +239,6 @@ class ConcentrationGrid(object):
         else:
             print('Grid neighbor error: provided box not in big box')
             sys.exit()
-
 
 
 class ConcentrationArrayGenerator(object):
@@ -363,15 +365,15 @@ class ConcentrationArrayGenerator(object):
                 value += 1
         return value
 
-    def generate_single_array(self, puff_array):
-        """
-        Generates a single concentration field array from an array of puff
-        properties.
-        """
+    def generate_single_array(self, puffs):
+
         # initialise concentration array
         conc_array = np.zeros((self.nx, self.ny))
         # loop through all the puffs
-        for (puff_x, puff_y, puff_z, puff_r_sq) in puff_array:
+        puffs_reshaped = puffs.reshape(-1,puffs.shape[-1])
+        # print(np.shape(puffs_reshaped[~np.isnan(puffs_reshaped[:, 0]), :].T))
+        for (puff_x, puff_y, puff_z, puff_r_sq) in \
+            (puffs_reshaped[~np.isnan(puffs_reshaped[:, 0]), :]):
             # to begin with check this a real puff and not a placeholder nan
             # entry as puff arrays may have been pre-allocated with nan
             # at a fixed size for efficiency and as the number of puffs

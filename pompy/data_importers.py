@@ -14,7 +14,7 @@ import pompy.processors as processors
 class ImportedPlumes(object):
 
     def __init__(self,hdf5_file,array_z,array_dim_x,array_dim_y,puff_mol_amount,
-    release_delay,box_approx=False,r_sq_max=20,epsilon=0.05,N=1e5):
+    release_delay,box_approx=False,r_sq_max=20,epsilon=0.05,N=1e6):
         self.data = h5py.File(hdf5_file,'r')
         run_param = json.loads(self.data.attrs['jsonparam'])
         sim_region_tuple = run_param['simulation_region']
@@ -28,7 +28,7 @@ class ImportedPlumes(object):
                 box_min,box_max,r_sq_max,epsilon,puff_mol_amount,N)
         else:
             self.array_gen = processors.ConcentrationValueCalculator(puff_mol_amount)
-        self.puff_array = self.data['puff_array']
+        self.puffs = self.data['puffs']
         self.array_ends = self.data['array_end']
         self.release_delay  = release_delay
         self.box_approx = box_approx
@@ -40,9 +40,9 @@ class ImportedPlumes(object):
             array_end = self.array_ends[ind-1]
         if array_end>0:
             try:
-                return self.puff_array[ind,0:array_end,:]
+                return self.puffs[ind,:,0:array_end,:]
             except(ValueError):
-                return self.puff_array[ind-1,0:array_end,:]
+                return self.puffs[ind-1,:,0:array_end,:]
         else:
             return []
     def value(self,t,xs,ys):
