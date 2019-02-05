@@ -16,7 +16,7 @@ from pompy import models, processors
 import json
 
 dt = 0.01
-frame_rate = 20
+frame_rate = 4
 times_real_time = 1 # seconds of simulation / sec in video
 capture_interval = int(scipy.ceil(times_real_time*((1./frame_rate)/dt)))
 simulation_time = 10# 1.*60. #seconds
@@ -151,12 +151,14 @@ ax2.set_ylim([0,20])
 plt.ion()
 plt.show()
 
+last1 = time.time()
+
+
 while t<simulation_time:
     for k in range(capture_interval):
         wind_field.update(dt)
         plume_model.update(dt)
         t+=dt
-        plt.pause(.01)
         print(t)
 
         velocity_field = wind_field.velocity_field
@@ -179,7 +181,10 @@ while t<simulation_time:
         conc_array = array_gen.generate_single_array(plume_model.puffs)
         conc_im.set_data(conc_array.T[::-1])
 
+    plt.pause(.0001)
     last = time.time()
     writer.grab_frame()
 
 writer.finish()
+
+print('Time to run 10 seconds, live data:'+str(time.time()-last1))

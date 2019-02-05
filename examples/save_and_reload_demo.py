@@ -19,6 +19,8 @@ from pompy import models, processors
 
 # #------------------------------BEGIN PLUME GENERATE & SAVE SECTION----------------------------------#
 #
+
+
 dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
@@ -61,11 +63,11 @@ max_num_puffs=int(2e5)
 
 
 plume_model = models.PlumeModel(
-    sim_region, source_pos, wind_field,simulation_time,
-    centre_rel_diff_scale=centre_rel_diff_scale,
-    puff_release_rate=puff_release_rate,
-    puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
-    max_num_puffs=max_num_puffs)
+sim_region, source_pos, wind_field,simulation_time,
+centre_rel_diff_scale=centre_rel_diff_scale,
+puff_release_rate=puff_release_rate,
+puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
+max_num_puffs=max_num_puffs)
 
 # Create a concentration array generator
 array_z = 0.01
@@ -74,7 +76,7 @@ array_dim_x = 1000
 array_dim_y = array_dim_x
 puff_mol_amount = 1.
 array_gen = processors.ConcentrationArrayGenerator(
-    sim_region, array_z, array_dim_x, array_dim_y, puff_mol_amount)
+sim_region, array_z, array_dim_x, array_dim_y, puff_mol_amount)
 
 # Set up figure
 fig = plt.figure(figsize=(8, 8))
@@ -157,34 +159,34 @@ while t<simulation_time:
         vector_field.set_UVC(u,v)
 
 
-    x_wind,y_wind = scipy.cos(constant_wind_angle),scipy.sin(constant_wind_angle)
-    wind_arrow.set_positions((xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),
-    (xmin+(xmax-xmin)/2+arrow_magn*x_wind,
-    ymax-0.2*(ymax-ymin)+arrow_magn*y_wind))
-    text ='{0} min {1} sec'.format(
-    int(scipy.floor(abs(t/60.))),int(scipy.floor(abs(t)%60.)))
-    timer.set_text(text)
+        x_wind,y_wind = scipy.cos(constant_wind_angle),scipy.sin(constant_wind_angle)
+        wind_arrow.set_positions((xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),
+        (xmin+(xmax-xmin)/2+arrow_magn*x_wind,
+        ymax-0.2*(ymax-ymin)+arrow_magn*y_wind))
+        text ='{0} min {1} sec'.format(
+        int(scipy.floor(abs(t/60.))),int(scipy.floor(abs(t)%60.)))
+        timer.set_text(text)
 
-    conc_array = array_gen.generate_single_array(plume_model.puffs)
-    conc_im.set_data(conc_array.T[::-1])
-
-
-    concStorer.store(conc_array.T[::-1])
-    last = time.time()
-
-    windStorer.store(velocity_field)
-    plumeStorer.store(plume_model.puffs)
+        conc_array = array_gen.generate_single_array(plume_model.puffs)
+        conc_im.set_data(conc_array.T[::-1])
 
 
+        concStorer.store(conc_array.T[::-1])
+        last = time.time()
 
+        windStorer.store(velocity_field)
+        plumeStorer.store(plume_model.puffs)
+#
 #------------------------------BEGIN RELOAD & USE SECTION-------------------------------------------#
 file_name = 'save_and_reload_demo'
 output_file = file_name+'.pkl'
 
 dt = 0.25
 frame_rate = 20
-times_real_time = 20 # seconds of simulation / sec in video
+times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = int(scipy.ceil(times_real_time*(1./frame_rate)/dt))
+    # print(capture_interval)
+    # raw_input()
 
 # simulation_time =  10#1.*60. #seconds
 release_delay = 0.*60
@@ -199,11 +201,16 @@ metadata = {'title':file_name,}
 writer = FFMpegWriter(fps=frame_rate, metadata=metadata)
 writer.setup(fig, file_name+'.mp4', 500)
 
-
+#
 #Import wind and plume objects
 conc_file = os.getcwd()+'/'+concStorer.hdf5_filename
 wind_file = os.getcwd()+'/'+windStorer.hdf5_filename
 plume_file = os.getcwd()+'/'+plumeStorer.hdf5_filename
+
+#Import wind and plume objects
+# conc_file = os.getcwd()+'/'+'concObject2.5-22:9.hdf5'
+# wind_file = os.getcwd()+'/'+'windObject2.5-22:9.hdf5'
+# plume_file = os.getcwd()+'/'+'puffObject2.5-22:9.hdf5'
 
 importedConc = data_importers.ImportedConc(conc_file,release_delay)
 importedWind = data_importers.ImportedWind(wind_file,release_delay)
@@ -251,6 +258,9 @@ t = 0*60.0 #- release_delay
 plt.ion()
 # plt.show()
 # raw_input()
+
+last = time.time()
+
 while t<simulation_time:
     for k in range(capture_interval):
         print('t: {0:1.2f}'.format(t))
@@ -265,7 +275,6 @@ while t<simulation_time:
         text ='{0} min {1} sec'.format(int(scipy.floor(t/60.-t_start/60.)),int(scipy.floor(t%60.)))
         timer.set_text(text)
         t+= dt
-        plt.pause(1)
 
         conc_array = importedConc.array_at_time(t)
 
@@ -275,3 +284,5 @@ while t<simulation_time:
     writer.grab_frame()
 
 writer.finish()
+
+print('Time to run 10 seconds, reloaded data:'+str(time.time()-last))
