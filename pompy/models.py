@@ -688,13 +688,18 @@ class PlumeStorer(object):
         puffs_active = ~np.isnan(puffs)
         num_active = int(np.sum(puffs_active[:,:,0]))
         buffered_puff_array = scipy.full((
-            self.num_traps,int(np.ceil(self.anticipated_puffs/(np.shape(puffs)[0]))),4),scipy.nan)
+            self.num_traps,
+            int(np.ceil(self.anticipated_puffs/(np.shape(puffs)[0]))),
+            4),
+            scipy.nan)
         # time.sleep(1)
         array_end=0
         if num_active>0:
             # print(num_active)
-            array_end = int(np.ceil(num_active/(np.shape(puffs)[0])))
-            buffered_puff_array[:,0:array_end,:] = puffs[:,0:array_end,:]
+            # array_end = int(np.ceil(num_active/(np.shape(puffs)[0]))) #This is wrong
+            array_end = np.max(np.sum(puffs_active[:,:,0],axis=1))
+            buffered_puff_array[:,0:array_end,:] = puffs[puffs_active].reshape(
+                np.shape(buffered_puff_array[:,0:array_end,:]))
 
         data = {'puffs':buffered_puff_array,'array_end':array_end}
         self.logger.add(data)

@@ -18,7 +18,7 @@ dt = 0.01
 frame_rate = 20
 times_real_time = 5 # seconds of simulation / sec in video
 capture_interval = int(scipy.ceil(times_real_time*((1./frame_rate)/dt)))
-simulation_time = 10.*60. #seconds
+simulation_time = 5.*60. #seconds
 t_start = -20*60. #time before fly release
 
 
@@ -70,7 +70,6 @@ puff_spread_rate=0.005
 puff_init_rad = 0.01
 max_num_puffs=int(2e5)
 # max_num_puffs=100
-
 
 plume_model = models.PlumeModel(
     sim_region, source_pos, wind_field,simulation_time-t_start,
@@ -175,7 +174,6 @@ def update(i):
     u,v = velocity_field[:,:,0],velocity_field[:,:,1]
     u,v = u[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor],\
         v[0:full_size-1:shrink_factor,0:full_size-1:shrink_factor]
-    print(u)
     vector_field.set_UVC(u,v)
     x_wind,y_wind = scipy.cos(constant_wind_angle),scipy.sin(constant_wind_angle)
     wind_arrow.set_positions((xmin+(xmax-xmin)/2,ymax-0.2*(ymax-ymin)),
