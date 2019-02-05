@@ -698,8 +698,10 @@ class PlumeStorer(object):
             # print(num_active)
             # array_end = int(np.ceil(num_active/(np.shape(puffs)[0]))) #This is wrong
             array_end = np.max(np.sum(puffs_active[:,:,0],axis=1))
-            buffered_puff_array[:,0:array_end,:] = puffs[puffs_active].reshape(
-                np.shape(buffered_puff_array[:,0:array_end,:]))
+            array_start = np.where(np.sum(puffs_active[:,:,0],axis=0)>0)[0][0]
+            buffered_puff_array[:,array_start:array_end,:] = puffs[:,array_start:array_end,:]#.reshape(
+                # np.shape(buffered_puff_array[:,0:array_end,:]))
+            # self.puffs[:,:,0][puffs_active[:,:,0]]
 
         data = {'puffs':buffered_puff_array,'array_end':array_end}
         self.logger.add(data)

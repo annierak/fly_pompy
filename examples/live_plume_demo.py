@@ -183,35 +183,3 @@ while t<simulation_time:
     writer.grab_frame()
 
 writer.finish()
-
-
-raw_input()
-
-
-plt.ion()
-# plt.show()
-# raw_input()
-while t<simulation_time:
-    for k in range(capture_interval):
-        print('t: {0:1.2f}'.format(t))
-        #measurement
-        new_conc = importedPlumes.value(t,[measurer_loc[0],],[measurer_loc[1]])[0]
-        print(new_conc)
-        concentration_window[:-1] = concentration_window[1:]
-        concentration_window[-1] = new_conc
-        conc_trace.set_ydata(concentration_window)
-        ax2.set_ylim([0,np.max(concentration_window)])
-        #Update time display
-        text ='{0} min {1} sec'.format(int(scipy.floor(t/60.-t_start/60.)),int(scipy.floor(t%60.)))
-        timer.set_text(text)
-        t+= dt
-        plt.pause(1)
-
-        conc_array = importedConc.array_at_time(t)
-
-        image.set_data(conc_array)
-
-    plt.pause(0.0001)
-    writer.grab_frame()
-
-writer.finish()
