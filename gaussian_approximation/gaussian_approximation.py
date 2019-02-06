@@ -1,0 +1,202 @@
+import time
+import scipy
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.animation as animate
+import matplotlib.patches
+matplotlib.use("Agg")
+import sys
+import itertools
+from matplotlib.animation import FuncAnimation
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
+import numpy as np
+import os
+import cPickle as pickle
+
+from scipy.optimize import curve_fit
+
+from pompy import models, processors
+import json
+
+dt = 0.01
+simulation_time = 1.*60. #seconds
+#
+#traps
+source_locations = [(0.,0.),]
+
+#Odor arena
+xlim = (0., 40.)
+ylim = (-10., 10.)
+sim_region = models.Rectangle(xlim[0], ylim[0], xlim[1], ylim[1])
+wind_region = models.Rectangle(xlim[0]*1.2,ylim[0]*1.2,
+xlim[1]*1.2,ylim[1]*1.2)
+
+source_pos = scipy.array([scipy.array(tup) for tup in source_locations]).T
+
+#wind model setup
+diff_eq = True
+constant_wind_angle = 0. #directly positive x wind direction
+aspect_ratio= (xlim[1]-xlim[0])/(ylim[1]-ylim[0])
+noise_gain=3.
+noise_damp=0.071
+noise_bandwidth=0.71
+wind_grid_density = 20
+Kx = Ky = 10 #highest value observed to not cause explosion: 10000
+wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
+wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
+noise_bandwidth=noise_bandwidth,Kx=Kx,Ky=Ky,
+diff_eq=diff_eq,angle=constant_wind_angle)
+
+
+# Set up plume model
+centre_rel_diff_scale = 2.
+puff_release_rate = 10
+puff_spread_rate=0.005
+puff_init_rad = 0.01
+max_num_puffs=int(2e5)
+
+
+plume_model = models.PlumeModel(
+    sim_region, source_pos, wind_field,simulation_time,
+    centre_rel_diff_scale=centre_rel_diff_scale,
+    puff_release_rate=puff_release_rate,
+    puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
+    max_num_puffs=max_num_puffs)
+
+# Create a concentration array generator
+array_z = 0.01
+
+array_dim_x = 1000
+array_dim_y = array_dim_x
+puff_mol_amount = 1.
+array_gen = processors.ConcentrationArrayGenerator(
+    sim_region, array_z, array_dim_x, array_dim_y, puff_mol_amount)
+conc_locs_x,conc_locs_y = np.meshgrid(
+    np.linspace(xlim[0],xlim[1],array_dim_x),
+    np.linspace(ylim[0],ylim[1],array_dim_y))
+
+fig = plt.figure(figsize=(8, 8))
+
+#Compute initial concentration field and display as image
+ax = plt.subplot(211)
+buffr = 1
+ax.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
+ax.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
+
+conc_array = array_gen.generate_single_array(plume_model.puffs)
+
+xmin = sim_region.x_min; xmax = sim_region.x_max
+ymin = sim_region.y_min; ymax = sim_region.y_max
+im_extents = (xmin,xmax,ymin,ymax)
+vmin,vmax = 0.,50.
+conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
+vmin=vmin, vmax=vmax, cmap='Reds')
+
+#Accumulated concentration field as image
+ax1 = plt.subplot(212)
+buffr = 1
+ax1.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
+ax1.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
+
+conc_array_accum = np.zeros_like(conc_array)
+conc_array_accum += conc_array
+
+vmin,vmax = 0.,50.
+conc_im1 = ax1.imshow(conc_array.T[::-1], extent=im_extents,
+vmin=vmin, vmax=vmax, cmap='Reds')
+
+
+#Display initial wind vector field -- subsampled from total
+velocity_field = wind_field.velocity_field
+u,v = velocity_field[:,:,0],velocity_field[:,:,1]
+full_size = scipy.shape(u)[0]
+shrink_factor = 10
+x_origins,y_origins = wind_field.x_points,wind_field.y_points
+coords = scipy.array(list(itertools.product(x_origins, y_origins)))
+x_coords,y_coords = coords[:,0],coords[:,1]
+vector_field = ax.quiver(x_coords,y_coords,u,v)
+
+
+plt.ion()
+plt.show()
+
+t=0.
+capture_interval = 25
+
+while t<simulation_time:
+    for k in range(capture_interval):
+        wind_field.update(dt)
+        plume_model.update(dt)
+        t+=dt
+        print(t)
+
+        velocity_field = wind_field.velocity_field
+        u,v = velocity_field[:,:,0],velocity_field[:,:,1]
+        vector_field.set_UVC(u,v)
+
+        conc_array = array_gen.generate_single_array(plume_model.puffs)
+        conc_im.set_data(conc_array.T[::-1])
+
+        conc_array_accum +=conc_array
+        conc_im1.set_data(conc_array_accum.T[::-1])
+
+    plt.pause(.0001)
+
+conc_array_accum_avg = conc_array_accum/(simulation_time*dt)
+
+output_file = 'conc_avg'+str(simulation_time)+'s.pkl'
+
+with open(output_file, 'w') as f:
+    pickle.dump(conc_array_accum_avg,f)
+#
+# raw_input()
+output_file = 'conc_avg'+str(simulation_time)+'s.pkl'
+
+#----Start here to load saved data
+with open(output_file,'r') as f:
+    conc_array_accum_avg = pickle.load(f)
+
+
+#The approximation function
+def gauss_approx((x,y),Q,C_y,n):
+    return (Q/(2*np.pi*(0.5*C_y*x**((2-n)/2))**2))*\
+        np.exp(-1*(y**2/(2*(0.5*C_y*x**((2-n)/2)))))
+
+#Find the fit Q,C_y,n
+initial_guess = (20.,0.4,1.)
+
+# #Test that the gauss_approx function works with vector inputs
+#
+# C_est = gauss_approx((conc_locs_x,conc_locs_y),*initial_guess)
+# plt.figure(2)
+# plt.imshow(C_est)
+# plt.show()
+#
+# raw_input()
+
+print(np.shape(conc_locs_x.flatten()))
+
+
+p_opt,p_cov = curve_fit(gauss_approx,(conc_locs_x.flatten(),conc_locs_y.flatten()),
+    conc_array_accum_avg.flatten(),p0=initial_guess)
+
+Q_est,C_y_est,n_est = p_opt
+
+#Plot a cross-section of the fitted approximation function with the accumulated conc field
+C_est = gauss_approx((conc_locs_x,conc_locs_y),Q_est,C_y_est,n_est)
+cross_section_indices = ((C_est-0.0)<0.01)&((C_est-0.0)>0.001)
+
+ax = plt.subplot(111)
+buffr = 1
+ax.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
+ax.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
+
+vmin,vmax = 0.,50.
+conc_im = ax.imshow(conc_array_accum_avg.T[::-1], extent=im_extents,
+vmin=vmin, vmax=vmax, cmap='Reds')
+
+ax.scatter(conc_locs_x[cross_section_indices],
+    conc_locs_y[cross_section_indices],color='blue')
+
+plt.show()
+raw_input()
