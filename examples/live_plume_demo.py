@@ -36,6 +36,7 @@ xlim[1]*1.2,ylim[1]*1.2)
 
 source_pos = scipy.array([scipy.array(tup) for tup in source_locations]).T
 
+
 #wind model setup
 diff_eq = True
 constant_wind_angle = 1*scipy.pi/8

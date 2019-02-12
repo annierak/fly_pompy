@@ -245,7 +245,7 @@ class PlumeModel(object):
         self.last_puff_ind = init_num_puffs
 
 
-    def update(self, dt):
+    def update(self, dt,verbose=False):
         """Perform time-step update of plume model with Euler integration."""
         # add more puffs (stochastically) if enough capacity
         # if len(self.puffs) < self.max_num_puffs*self.unique_sources:
@@ -269,7 +269,8 @@ class PlumeModel(object):
             print('diffusion not programmed for this dt value')
         puffs_active = ~np.isnan(self.puffs)
         num_active = np.sum(puffs_active[:,:,0])
-        print(str(num_active)+' puffs active')
+        if verbose:
+            print(str(num_active)+' puffs active')
         # print(np.shape(puffs_active))
         #traps by puffs
         # interpolate wind velocity at Puff positions from wind model grid
@@ -387,6 +388,8 @@ class WindModel(object):
         self.EmpiricalWindField = EmpiricalWindField
         self.angle = angle
         self.mag = mag
+        print('magnitude of wind: '+str(mag))
+        time.sleep(5)
         if (self.angle==None) and (self.EmpiricalWindField==None):
             raise ValueError('Wind model object requires either a constant wind angle or an EmpiricalWindField data object')
         # store grid parameters interally
@@ -635,6 +638,34 @@ class ColouredNoiseGenerator(object):
         dx_dt = self._A.dot(self._x) + self._B * u
         # apply update with Euler integration
         self._x += dx_dt * dt
+
+class SuttonModelPlume(object):
+    def __init__(self,Q,C_y,n,source_pos,wind_angle):
+        self.Q = Q
+        self.C_y = C_y
+        self.n = n
+        self.source_pos = source_pos.T #shape of input source_pos is traps x 2 (x,y)
+        self.wind_angle = wind_angle
+
+    def value_transformed(self,coords):
+        '''Returns the value of the plume at the inputted x,y distance
+        in the plume/wind coordinate system '''
+        #coords: 2 x targets x sources
+        #output dimension = number of targets
+        x,y = coords
+        value_by_trap = (self.Q/(2*np.pi*(0.5*self.C_y*x**((2-self.n)/2))**2))*\
+            np.exp(-1*(y**2/(2*(0.5*self.C_y*x**((2-self.n)/2)))))
+        value_by_trap[np.isnan(value_by_trap)] = 0.
+        return np.sum(value_by_trap,axis=1)
+
+    def value(self,x,y):
+        '''For a vector of the (x,y) target locations, returns the
+        summed values over the plumes'''
+        #output dimension = number of targets
+        return self.value_transformed(utility.shift_and_rotate(
+            np.vstack((x,y)).T[:,:,np.newaxis],
+            self.source_pos[np.newaxis,:,:],
+            self.wind_angle))
 
 class EmpiricalWindField(object):
     def __init__(self,wind_data_file,wind_dt,dt,t_start):

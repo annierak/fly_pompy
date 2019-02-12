@@ -18,18 +18,30 @@ from scipy.optimize import curve_fit
 from pompy import models, processors
 import json
 
+wind_mag = 1.
+
 dt = 0.01
 simulation_time = 1.*60. #seconds
-#
+
+release_delay = 30.*60/(wind_mag)
+
+t_start = 0.0
+t = 0. - release_delay
+
+
 #traps
 source_locations = [(0.,0.),]
 
-#Odor arena
-xlim = (0., 40.)
-ylim = (-10., 10.)
-sim_region = models.Rectangle(xlim[0], ylim[0], xlim[1], ylim[1])
+#Wind arena as big as wind arena for desert simulation
+xlim = (-1500., 1500.)
+ylim = (-1500., 1500.)
 wind_region = models.Rectangle(xlim[0]*1.2,ylim[0]*1.2,
 xlim[1]*1.2,ylim[1]*1.2)
+
+#Odor arena just directly surrounding the single plume
+xlim_odor = (-100., 1500.)
+ylim_odor = (-300., 300.)
+sim_region = models.Rectangle(xlim_odor[0], ylim_odor[0], xlim_odor[1], ylim_odor[1])
 
 source_pos = scipy.array([scipy.array(tup) for tup in source_locations]).T
 
@@ -45,8 +57,7 @@ Kx = Ky = 10 #highest value observed to not cause explosion: 10000
 wind_field = models.WindModel(wind_region,int(wind_grid_density*aspect_ratio),
 wind_grid_density,noise_gain=noise_gain,noise_damp=noise_damp,
 noise_bandwidth=noise_bandwidth,Kx=Kx,Ky=Ky,
-diff_eq=diff_eq,angle=constant_wind_angle)
-
+diff_eq=diff_eq,angle=constant_wind_angle,mag=wind_mag)
 
 # Set up plume model
 centre_rel_diff_scale = 2.
@@ -57,7 +68,7 @@ max_num_puffs=int(2e5)
 
 
 plume_model = models.PlumeModel(
-    sim_region, source_pos, wind_field,simulation_time,
+    sim_region, source_pos, wind_field,simulation_time+release_delay,
     centre_rel_diff_scale=centre_rel_diff_scale,
     puff_release_rate=puff_release_rate,
     puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
@@ -120,7 +131,6 @@ vector_field = ax.quiver(x_coords,y_coords,u,v)
 plt.ion()
 plt.show()
 
-t=0.
 capture_interval = 25
 
 while t<simulation_time:
@@ -134,20 +144,21 @@ while t<simulation_time:
         u,v = velocity_field[:,:,0],velocity_field[:,:,1]
         vector_field.set_UVC(u,v)
 
-        conc_array = array_gen.generate_single_array(plume_model.puffs)
-        conc_im.set_data(conc_array.T[::-1])
+        if t>0:
+            conc_array = array_gen.generate_single_array(plume_model.puffs)
+            conc_im.set_data(conc_array.T[::-1])
 
-        conc_array_accum +=conc_array
-        conc_im1.set_data(conc_array_accum.T[::-1])
+            conc_array_accum +=conc_array
+            conc_im1.set_data(conc_array_accum.T[::-1])
 
     plt.pause(.0001)
 
 conc_array_accum_avg = conc_array_accum/(simulation_time*dt)
 
-output_file = 'conc_avg'+str(simulation_time)+'s.pkl'
+output_file = 'conc_avg'+str(simulation_time)+'s'+'_ws'+str(wind_mag)+''.pkl'
 
 with open(output_file, 'w') as f:
-    pickle.dump(conc_array_accum_avg,f)
+    pickle.dump((simulation_time,wind_mag,conc_array_accum_avg),f)
 #
 # raw_input()
 output_file = 'conc_avg'+str(simulation_time)+'s.pkl'

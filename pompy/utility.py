@@ -17,8 +17,6 @@ def shift_and_rotate(p, shift, angle):
     p_vec = scipy.array(p)
     shift_vec = scipy.array(shift)
     rot_mat = rotation_matrix(angle)
-    if len(p_vec.shape) > 1:
-        shift_vec = scipy.reshape(shift_vec,(2,1))
     return scipy.dot(rot_mat, p_vec - shift_vec)
 
 
@@ -28,6 +26,7 @@ def rotation_matrix(angle):
         [scipy.sin(angle),  scipy.cos(angle)]
         ])
     return A
+
 
 def draw_from_inputted_distribution(data,dt,n_samples):
     #function for using empirical release data to
