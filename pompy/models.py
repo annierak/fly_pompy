@@ -665,7 +665,15 @@ class SuttonModelPlume(object):
         return self.value_transformed(utility.shift_and_rotate(
             np.vstack((x,y)).T[:,:,np.newaxis],
             self.source_pos[np.newaxis,:,:],
-            self.wind_angle))
+            -self.wind_angle))
+
+    def conc_im(self,im_extents,samples=1000):
+        #im extents: (xmin, ymin, xmax, ymax)
+        (xmin, xmax, ymin, ymax) = im_extents
+        x,y = np.meshgrid(np.linspace(xmin,xmax,samples),
+            np.linspace(ymin,ymax,samples))
+        return self.value(x.flatten(),
+            y.flatten()).reshape((samples,samples))
 
 class EmpiricalWindField(object):
     def __init__(self,wind_data_file,wind_dt,dt,t_start):
