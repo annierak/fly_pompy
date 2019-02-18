@@ -264,7 +264,7 @@ class PlumeModel(object):
         if dt ==0.01:
             noise_scale = 1
         elif dt==0.25:
-            noise_scale = 0.3
+            noise_scale = 0.2
         else:
             print('diffusion not programmed for this dt value')
         puffs_active = ~np.isnan(self.puffs)
@@ -287,13 +287,12 @@ class PlumeModel(object):
         if self._vel_dim>2:
             # print('here')
             wind_vel = np.hstack((wind_vel,np.zeros(num_active)[:,np.newaxis]))
-        # print(np.shape(wind_vel))
+
         # approximate centre-line relative puff transport velocity
         # component as being a (Gaussian) white noise process scaled by
         # constants
         filament_diff_vel = noise_scale*(self.prng.normal(size=(num_active,self._vel_dim)) *
             self.centre_rel_diff_scale)
-        #********** heyyyyyyyyy how about you  make this line above not dependent on the time step
 
         vel = wind_vel + filament_diff_vel
 
@@ -388,8 +387,6 @@ class WindModel(object):
         self.EmpiricalWindField = EmpiricalWindField
         self.angle = angle
         self.mag = mag
-        print('magnitude of wind: '+str(mag))
-        time.sleep(5)
         if (self.angle==None) and (self.EmpiricalWindField==None):
             raise ValueError('Wind model object requires either a constant wind angle or an EmpiricalWindField data object')
         # store grid parameters interally
@@ -491,7 +488,7 @@ class WindModel(object):
             return np.array([self._interp_u.ev(x, y),
                          self._interp_v.ev(x, y)]).T
         else:
-            return scipy.array([self.u_av,self.v_av]).T
+            return np.repeat([[self.u_av,self.v_av]],len(x),axis=0)
 
     def update(self, dt):
         """

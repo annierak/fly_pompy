@@ -62,7 +62,7 @@ class ConcentrationValueCalculator(object):
         px, py, pz, r_sq = puff_array[~np.isnan(puff_array[:, 0]), :].T
         return self._puff_conc_dist(x, y, z, px, py, pz, r_sq).sum(-1)
 
-    def calc_conc_list(self, puff_array, x, y, z=0):
+    def calc_conc_list(self, puffs, x, y, z=0):
         """
         Calculate concentrations across a 1D list of points in a xy-plane.
 
@@ -81,7 +81,8 @@ class ConcentrationValueCalculator(object):
         """
         # filter for non-nan puff entries and separate properties for
         # convenience
-        px, py, pz, r_sq = puff_array[~np.isnan(puff_array[:, 0]), :].T
+        puffs_reshaped = puffs.reshape(-1,puffs.shape[-1])
+        px, py, pz, r_sq = puffs_reshaped[~np.isnan(puffs_reshaped[:, 0]), :].T
         na = np.newaxis
 
         return self._puff_conc_dist(x[:, na], y[:, na], z, px[na, :],
