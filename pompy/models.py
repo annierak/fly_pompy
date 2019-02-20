@@ -131,11 +131,12 @@ class PlumeModel(object):
     spread in size over time to model fine-scale diffusive processes.
     """
 
-    def __init__(self, sim_region, source_pos, wind_model, simulation_time,
-                model_z_disp=True,
+    def __init__(self, sim_region, source_pos, wind_model, simulation_time,dt,
+                plume_cutoff_radius = 4000, model_z_disp=True,
                  centre_rel_diff_scale=2., puff_init_rad=0.03,
                  puff_spread_rate=0.001, puff_release_rate=10,
-                 init_num_puffs=10, max_num_puffs=1000, prng=np.random):
+                 init_num_puffs=10, max_num_puffs=1000, prng=np.random,
+                 max_distance_from_trap = 3000):
         """
         Parameters
         ----------
@@ -207,6 +208,7 @@ class PlumeModel(object):
                      'puff_spread_rate', 'puff_release_rate',
                      'init_num_puffs', 'max_num_puffs']])
         self.sim_region = sim_region
+        self.plume_cutoff_radius = plume_cutoff_radius
         self.wind_model = wind_model
         self.source_pos = source_pos
         self.prng = prng
@@ -233,6 +235,15 @@ class PlumeModel(object):
                                  puff_init_rad**2)
         self.puff_spread_rate = puff_spread_rate
         self.puff_release_rate = puff_release_rate
+
+        #Since the distance from the trap is closely proxied by
+        #the time passed*wind_speed, and puff r_sq = time passed*puff_spread_rate,
+        #choose a maximum puff_r_sq at which to remove puffs from the simulation
+
+        wind_speed = wind_model.mag
+        self.max_puff_r_sq = (max_distance_from_trap/wind_speed)*self.puff_spread_rate
+
+
         self.max_num_puffs = max_num_puffs
         # 1/25/2019: the puff list is an array of size
         # num_traps x (1.1 x simulation_time x release rate) x 4 (data points per puff)
@@ -244,6 +255,14 @@ class PlumeModel(object):
                     self.source_z,puff_init_rad**2]])
         self.last_puff_ind = init_num_puffs
 
+        #The parameter 'centre_rel_diff_scale' needs to be scaled if the time
+        #step is not 0.01. For a dt of some factor N times 0.01 (the original dt),
+        #to achieve the same puff-to-centerline variance, multiply
+        #self.centre_rel_diff_scale by 1/(sqrt(N)).
+
+        self.dt = dt
+        if dt!=0.01:
+            self.centre_rel_diff_scale *= (1./(np.sqrt(dt/0.01)))
 
     def update(self, dt,verbose=False):
         """Perform time-step update of plume model with Euler integration."""
@@ -261,12 +280,6 @@ class PlumeModel(object):
                     self.source_z,self.puff_init_rad**2]])
 
         self.last_puff_ind +=num_to_release
-        if dt ==0.01:
-            noise_scale = 1
-        elif dt==0.25:
-            noise_scale = 0.2
-        else:
-            print('diffusion not programmed for this dt value')
         puffs_active = ~np.isnan(self.puffs)
         num_active = np.sum(puffs_active[:,:,0])
         if verbose:
@@ -291,7 +304,8 @@ class PlumeModel(object):
         # approximate centre-line relative puff transport velocity
         # component as being a (Gaussian) white noise process scaled by
         # constants
-        filament_diff_vel = noise_scale*(self.prng.normal(size=(num_active,self._vel_dim)) *
+
+        filament_diff_vel = (self.prng.normal(size=(num_active,self._vel_dim)) *
             self.centre_rel_diff_scale)
 
         vel = wind_vel + filament_diff_vel
@@ -307,10 +321,23 @@ class PlumeModel(object):
 
         # num_traps  x (1.1 x simulation_time x release rate) x 4 (data points per puff)
 
+        #Remove the puffs that have exceeded the max_puff_r_sq
+        # to_cut = self.puffs[:,:,3] >  self.max_puff_r_sq
+        # self.puffs[to_cut] = np.nan
+
+
+
+        # left_region = (np.abs(self.puffs[:,:,0])>self.plume_cutoff_radius) | \
+        #     (np.abs(self.puffs[:,:,1])>self.plume_cutoff_radius) #size num_traps x (1.1 x simulation_time x release rate)
+
+        # left_region = (np.sqrt((self.puffs[:,:,0])**2+(self.puffs[:,:,1])**2
+        # ))>self.plume_cutoff_radius #size num_traps x (1.1 x simulation_time x release rate)
+
         #set puffs that are not in the simulation region back to nans
         left_region = (np.abs(self.puffs[:,:,0])>self.sim_region.x_max) | \
-            (np.abs(self.puffs[:,:,1])>self.sim_region.y_max) #size num_traps x (1.1 x simulation_time x release rate)
+        (np.abs(self.puffs[:,:,1])>self.sim_region.y_max) #size num_traps x (1.1 x simulation_time x release rate)
         self.puffs[left_region] = np.nan
+
         # raw_input()
 
     @property
