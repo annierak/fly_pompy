@@ -18,7 +18,7 @@ from scipy.optimize import curve_fit
 from pompy import models, processors
 import json
 
-dt = 0.01
+dt = 0.25
 simulation_time = 1.*60. #seconds
 #
 #traps
@@ -57,7 +57,7 @@ max_num_puffs=int(2e5)
 
 
 plume_model = models.PlumeModel(
-    sim_region, source_pos, wind_field,simulation_time,
+    sim_region, source_pos, wind_field,simulation_time,dt,
     centre_rel_diff_scale=centre_rel_diff_scale,
     puff_release_rate=puff_release_rate,
     puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,

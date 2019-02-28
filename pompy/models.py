@@ -15,6 +15,7 @@ import scipy.sparse
 import utility
 import datetime
 import h5_logger
+import cPickle as pickle
 import os
 import time
 
@@ -322,10 +323,11 @@ class PlumeModel(object):
         # num_traps  x (1.1 x simulation_time x release rate) x 4 (data points per puff)
 
         #Remove the puffs that have exceeded the max_puff_r_sq
-        # to_cut = self.puffs[:,:,3] >  self.max_puff_r_sq
-        # self.puffs[to_cut] = np.nan
+        to_cut = self.puffs[:,:,3] >  self.max_puff_r_sq
+        self.puffs[to_cut] = np.nan
 
 
+        #Previously: cutoff based on leaving square arena
 
         # left_region = (np.abs(self.puffs[:,:,0])>self.plume_cutoff_radius) | \
         #     (np.abs(self.puffs[:,:,1])>self.plume_cutoff_radius) #size num_traps x (1.1 x simulation_time x release rate)
@@ -334,9 +336,9 @@ class PlumeModel(object):
         # ))>self.plume_cutoff_radius #size num_traps x (1.1 x simulation_time x release rate)
 
         #set puffs that are not in the simulation region back to nans
-        left_region = (np.abs(self.puffs[:,:,0])>self.sim_region.x_max) | \
-        (np.abs(self.puffs[:,:,1])>self.sim_region.y_max) #size num_traps x (1.1 x simulation_time x release rate)
-        self.puffs[left_region] = np.nan
+        # left_region = (np.abs(self.puffs[:,:,0])>self.sim_region.x_max) | \
+        # (np.abs(self.puffs[:,:,1])>self.sim_region.y_max) #size num_traps x (1.1 x simulation_time x release rate)
+        # self.puffs[left_region] = np.nan
 
         # raw_input()
 
@@ -698,6 +700,49 @@ class SuttonModelPlume(object):
             np.linspace(ymin,ymax,samples))
         return self.value(x.flatten(),
             y.flatten()).reshape((samples,samples))
+
+class GaussianFitPlume(object):
+    def __init__(self,source_pos,wind_angle):
+        param_address = '/home/annie/work/programming/pompy_duplicate/gaussian_approximation_take2/'
+        with open(param_address+'fit_gaussian_plume_params.pkl','r') as f:
+            param_dict = pickle.load(f)
+        self.a_a = param_dict['a_a']
+        self.a_k = param_dict['a_k']
+        self.sigma_a = param_dict['sigma_a']
+        self.sigma_k = param_dict['sigma_k']
+        self.source_pos = source_pos.T #shape of input source_pos is traps x 2 (x,y)
+        self.wind_angle = wind_angle
+
+    def value_transformed(self,coords):
+        '''Returns the value of the plume at the inputted x,y distance
+        in the plume/wind coordinate system '''
+        #coords: 2 x targets x sources
+        #output dimension = number of targets
+        x,y = coords
+        value_by_trap =  ((self.a_a*x**self.a_k)/np.sqrt(2*np.pi*(
+            self.sigma_a*x**self.sigma_k)**2))*np.exp(
+            -(y**2)/(2*(self.sigma_a*x**self.sigma_k)**2))
+        value_by_trap[np.isnan(value_by_trap)] = 0.
+        return np.sum(value_by_trap,axis=1)
+
+    def value(self,x,y):
+        '''For a vector of the (x,y) target locations, returns the
+        summed values over the plumes'''
+        #output dimension = number of targets
+        return self.value_transformed(utility.shift_and_rotate(
+            np.vstack((x,y)).T[:,:,np.newaxis],
+            self.source_pos[np.newaxis,:,:],
+            -self.wind_angle))
+
+    def conc_im(self,im_extents,samples=1000):
+        #im extents: (xmin, ymin, xmax, ymax)
+        (xmin, xmax, ymin, ymax) = im_extents
+        x,y = np.meshgrid(np.linspace(xmin,xmax,samples),
+            np.linspace(ymin,ymax,samples))
+        return self.value(x.flatten(),
+            y.flatten()).reshape((samples,samples))
+
+
 
 class EmpiricalWindField(object):
     def __init__(self,wind_data_file,wind_dt,dt,t_start):
