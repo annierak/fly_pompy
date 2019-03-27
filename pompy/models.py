@@ -702,14 +702,29 @@ class SuttonModelPlume(object):
             y.flatten()).reshape((samples,samples))
 
 class GaussianFitPlume(object):
-    def __init__(self,source_pos,wind_angle):
+    def __init__(self,source_pos,wind_angle,wind_mag):
         param_address = '/home/annie/work/programming/pompy_duplicate/gaussian_approximation_take2/'
-        with open(param_address+'fit_gaussian_plume_params.pkl','r') as f:
+        with open(param_address+\
+            'fit_gaussian_plume_params_odor_threshold_0.05_plume_width_factor_1.0'+\
+                '_wind_speed_'+str(wind_mag)+'.pkl','r') as f:
             param_dict = pickle.load(f)
-        self.a_a = param_dict['a_a']
-        self.a_k = param_dict['a_k']
-        self.sigma_a = param_dict['sigma_a']
-        self.sigma_k = param_dict['sigma_k']
+
+        # self.a_a = param_dict['a_a']
+        # self.a_k = param_dict['a_k']
+        # self.sigma_a = param_dict['sigma_a']
+        # self.sigma_k = param_dict['sigma_k']
+
+        #Intermediate hacky version
+
+        self.sigmas = param_dict['sigmas']
+
+        self.mags = param_dict['as']
+        self.sigmas = np.concatenate((self.sigmas,np.ones(6*len(self.sigmas))))
+        self.mags = np.concatenate((self.mags,np.zeros(6*len(self.sigmas))))
+
+        # self.mags = self.mags/(10.)
+        self.dx = param_dict['dx']
+
         self.source_pos = source_pos.T #shape of input source_pos is traps x 2 (x,y)
         self.wind_angle = wind_angle
 
@@ -719,9 +734,19 @@ class GaussianFitPlume(object):
         #coords: 2 x targets x sources
         #output dimension = number of targets
         x,y = coords
-        value_by_trap =  ((self.a_a*x**self.a_k)/np.sqrt(2*np.pi*(
-            self.sigma_a*x**self.sigma_k)**2))*np.exp(
-            -(y**2)/(2*(self.sigma_a*x**self.sigma_k)**2))
+
+        #Intermediate hacky version
+        x_inds = np.floor(x/self.dx).astype(int)
+
+        value_by_trap =  (self.mags[x_inds])/np.sqrt(2*np.pi*(
+            self.sigmas[x_inds])**2)*np.exp(
+            -(y**2)/(2*(self.sigmas[x_inds])**2))
+
+        #Version with fit variance and amplitude functions
+        # value_by_trap =  ((self.a_a*x**self.a_k)/np.sqrt(2*np.pi*(
+        #     self.sigma_a*x**self.sigma_k)**2))*np.exp(
+        #     -(y**2)/(2*(self.sigma_a*x**self.sigma_k)**2))
+        value_by_trap[value_by_trap>1.] = 1.
         value_by_trap[np.isnan(value_by_trap)] = 0.
         return np.sum(value_by_trap,axis=1)
 
