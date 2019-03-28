@@ -83,7 +83,7 @@ def make_time_averaged_plume(wind_mag):
         np.linspace(xlim[0],xlim[1],array_dim_x),
         np.linspace(ylim[0],ylim[1],array_dim_y))
 
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(4*8, 8))
 
     #Compute initial concentration field and display as image
     ax = plt.subplot(211)
@@ -132,21 +132,22 @@ def make_time_averaged_plume(wind_mag):
     t=0.
     capture_interval = 25
     #
-    # while t<simulation_time:
-    #     for k in range(capture_interval):
-    #         wind_field.update(dt)
-    #         plume_model.update(dt,verbose=True)
-    #         t+=dt
-    #         print(t)
-    #
-    #
-    #         if t>collection_begins:
-    #             conc_array = array_gen.generate_single_array(plume_model.puffs)
-    #             accum_threshold_crosses += (conc_array>=detection_threshold).astype(float)
-    #     if t>collection_begins:
-    #         conc_im.set_data((conc_array>=detection_threshold).astype(float).T[::-1])
-    #         conc_im1.set_data(accum_threshold_crosses.T[::-1])
-    #         plt.pause(.0001)
+    while t<simulation_time:
+        for k in range(capture_interval):
+            wind_field.update(dt)
+            plume_model.update(dt,verbose=True)
+            t+=dt
+            print(t)
+
+
+            if t>collection_begins:
+                conc_array = array_gen.generate_single_array(plume_model.puffs)
+                accum_threshold_crosses += (conc_array>=detection_threshold).astype(float)
+        if t>collection_begins:
+            conc_im.set_data((conc_array>=detection_threshold).astype(float).T[::-1])
+            conc_im1.set_data(accum_threshold_crosses.T[::-1])
+            plt.pause(.0001)
+            time.sleep(600)
 
     threshold_cross_prob = accum_threshold_crosses/((t-collection_begins)/dt)
     # conc_array_accum_avg = conc_array_accum/((simulation_time-collection_begins)*dt)
