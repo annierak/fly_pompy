@@ -68,7 +68,7 @@ max_num_puffs=int(2e5)
 
 
 plume_model = models.PlumeModel(
-    sim_region, source_pos, wind_field,simulation_time+release_delay,
+    sim_region, source_pos, wind_field,simulation_time+release_delay,dt,
     centre_rel_diff_scale=centre_rel_diff_scale,
     puff_release_rate=puff_release_rate,
     puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
@@ -155,7 +155,7 @@ while t<simulation_time:
 
 conc_array_accum_avg = conc_array_accum/(simulation_time*dt)
 
-output_file = 'conc_avg'+str(simulation_time)+'s'+'_ws'+str(wind_mag)+''.pkl'
+output_file = 'conc_avg'+str(simulation_time)+'s'+'_ws'+str(wind_mag)+'.pkl'
 
 with open(output_file, 'w') as f:
     pickle.dump((simulation_time,wind_mag,conc_array_accum_avg),f)

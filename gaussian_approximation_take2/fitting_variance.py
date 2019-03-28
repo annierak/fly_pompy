@@ -91,6 +91,9 @@ def make_time_averaged_plume(wind_mag):
     ax.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
     ax.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
 
+    ax.set_xlim((200,250))
+    ax.set_ylim((-10,10))
+
     conc_array = array_gen.generate_single_array(plume_model.puffs)
 
 
@@ -100,6 +103,8 @@ def make_time_averaged_plume(wind_mag):
     vmin,vmax = 0.,1.
     conc_im = ax.imshow(conc_array.T[::-1], extent=im_extents,
     vmin=vmin, vmax=vmax, cmap='Reds',aspect='auto')
+    ax.set_aspect('equal')
+
 
     #Accumulated concentration field as image
     ax1 = plt.subplot(212)

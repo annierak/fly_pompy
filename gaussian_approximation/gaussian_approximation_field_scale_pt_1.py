@@ -68,7 +68,7 @@ for wind_mag in np.arange(0.4,3.8,0.2):
 
 
     plume_model = models.PlumeModel(
-        sim_region, source_pos, wind_field,simulation_time+release_delay,
+        sim_region, source_pos, wind_field,simulation_time+release_delay,dt,
         centre_rel_diff_scale=centre_rel_diff_scale,
         puff_release_rate=puff_release_rate,
         puff_init_rad=puff_init_rad,puff_spread_rate=puff_spread_rate,
@@ -82,7 +82,7 @@ for wind_mag in np.arange(0.4,3.8,0.2):
     puff_mol_amount = 1.
     array_gen = processors.ConcentrationArrayGenerator(
         sim_region, array_z, array_dim_x, array_dim_y, puff_mol_amount)
-        
+
     fig = plt.figure(figsize=(8, 8))
 
     #Compute initial concentration field and display as image
@@ -125,8 +125,8 @@ for wind_mag in np.arange(0.4,3.8,0.2):
     vector_field = ax.quiver(x_coords,y_coords,u,v)
 
 
-    # plt.ion()
-    # plt.show()
+    plt.ion()
+    plt.show()
 
     capture_interval = 25
 
@@ -137,18 +137,18 @@ for wind_mag in np.arange(0.4,3.8,0.2):
             t+=dt
             print(t)
 
-            # velocity_field = wind_field.velocity_field
-            # u,v = velocity_field[:,:,0],velocity_field[:,:,1]
-            # vector_field.set_UVC(u,v)
+            velocity_field = wind_field.velocity_field
+            u,v = velocity_field[:,:,0],velocity_field[:,:,1]
+            vector_field.set_UVC(u,v)
 
             if t>0:
                 conc_array = array_gen.generate_single_array(plume_model.puffs)
-                # conc_im.set_data(conc_array.T[::-1])
+                conc_im.set_data(conc_array.T[::-1])
 
                 conc_array_accum +=conc_array
-                # conc_im1.set_data(conc_array_accum.T[::-1])
+                conc_im1.set_data(conc_array_accum.T[::-1])
 
-        # plt.pause(.0001)
+        plt.pause(.0001)
 
     conc_array_accum_avg = conc_array_accum/(simulation_time*dt)
 
