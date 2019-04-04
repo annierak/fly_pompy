@@ -20,15 +20,15 @@ import json
 
 def make_time_averaged_plume(wind_mag):
     dt = 0.25
-    simulation_time = 50*60. #seconds
-    collection_begins = 25*60. #to let the plume fill the space
+    simulation_time = 100*60. #seconds
+    collection_begins = 75*60. #to let the plume fill the space
 
     #traps
     source_locations = [(0.,0.),]
 
     #Odor arena
     xlim = (0., 1200.)
-    ylim = (-50., 50.)
+    ylim = (-150., 150.)
     sim_region = models.Rectangle(xlim[0], ylim[0], xlim[1], ylim[1])
     wxlim = (-1500., 1500.)
     wylim = (-1500., 1500.)
@@ -56,7 +56,7 @@ def make_time_averaged_plume(wind_mag):
 
 
     # Set up plume model
-    plume_width_factor = 1.
+    plume_width_factor = 4.
     centre_rel_diff_scale = 2.*plume_width_factor
     puff_release_rate = 10
     puff_spread_rate=0.005
@@ -91,8 +91,8 @@ def make_time_averaged_plume(wind_mag):
     ax.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
     ax.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
 
-    ax.set_xlim((200,250))
-    ax.set_ylim((-10,10))
+    # ax.set_xlim((200,250))
+    # ax.set_ylim((-10,10))
 
     conc_array = array_gen.generate_single_array(plume_model.puffs)
 
@@ -131,8 +131,8 @@ def make_time_averaged_plume(wind_mag):
     vector_field = ax.quiver(x_coords,y_coords,u,v)
 
     #
-    plt.ion()
-    plt.show()
+    # plt.ion()
+    # plt.show()
     #
     t=0.
     capture_interval = 25
@@ -148,11 +148,10 @@ def make_time_averaged_plume(wind_mag):
             if t>collection_begins:
                 conc_array = array_gen.generate_single_array(plume_model.puffs)
                 accum_threshold_crosses += (conc_array>=detection_threshold).astype(float)
-        if t>collection_begins:
-            conc_im.set_data((conc_array>=detection_threshold).astype(float).T[::-1])
-            conc_im1.set_data(accum_threshold_crosses.T[::-1])
-            plt.pause(.0001)
-            time.sleep(600)
+        # if t>collection_begins:
+        #     conc_im.set_data((conc_array>=detection_threshold).astype(float).T[::-1])
+        #     conc_im1.set_data(accum_threshold_crosses.T[::-1])
+        #     plt.pause(.0001)
 
     threshold_cross_prob = accum_threshold_crosses/((t-collection_begins)/dt)
     # conc_array_accum_avg = conc_array_accum/((simulation_time-collection_begins)*dt)
@@ -273,8 +272,8 @@ def make_time_averaged_plume(wind_mag):
 
     plt.legend(bbox_to_anchor=(1, 0.5))
 
-    plt.show()
-    raw_input
+    # plt.show()
+    # raw_input
 
 
     print('sigma_a: '+str(sigma_a)+', sigma_k: '+str(sigma_k))

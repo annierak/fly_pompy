@@ -12,6 +12,7 @@ import numpy as np
 import scipy
 import scipy.interpolate as interp
 import scipy.sparse
+import scipy.special
 import utility
 import datetime
 import h5_logger
@@ -722,10 +723,15 @@ class GaussianFitPlume(object):
         self.sigmas = np.concatenate((self.sigmas,np.ones(6*len(self.sigmas))))
         self.mags = np.concatenate((self.mags,np.zeros(6*len(self.sigmas))))
 
+        # import matplotlib.pyplot as plt
+        # plt.hist(self.mags,bins=100)
+        # plt.show()
+
         # self.mags = self.mags/(10.)
         self.dx = param_dict['dx']
 
         self.source_pos = source_pos.T #shape of input source_pos is traps x 2 (x,y)
+        # print('0',np.shape(self.source_pos))
         self.wind_angle = wind_angle
 
     def value_transformed(self,coords):
@@ -733,6 +739,7 @@ class GaussianFitPlume(object):
         in the plume/wind coordinate system '''
         #coords: 2 x targets x sources
         #output dimension = number of targets
+        # print(np.shape(coords))
         x,y = coords
 
         #Intermediate hacky version
@@ -741,6 +748,9 @@ class GaussianFitPlume(object):
         value_by_trap =  (self.mags[x_inds])/np.sqrt(2*np.pi*(
             self.sigmas[x_inds])**2)*np.exp(
             -(y**2)/(2*(self.sigmas[x_inds])**2))
+
+        # print(np.shape(value_by_trap))
+        # input()
 
         #Version with fit variance and amplitude functions
         # value_by_trap =  ((self.a_a*x**self.a_k)/np.sqrt(2*np.pi*(
@@ -754,10 +764,15 @@ class GaussianFitPlume(object):
         '''For a vector of the (x,y) target locations, returns the
         summed values over the plumes'''
         #output dimension = number of targets
-        return self.value_transformed(utility.shift_and_rotate(
+        # print('a',np.shape(np.vstack((x,y)).T[:,:,np.newaxis]))
+        # print('b',np.shape(self.source_pos[np.newaxis,:,:]))
+        # print('c',np.shape(self.wind_angle))
+        coords = utility.shift_and_rotate(
             np.vstack((x,y)).T[:,:,np.newaxis],
             self.source_pos[np.newaxis,:,:],
-            -self.wind_angle))
+            -self.wind_angle)
+        # print(np.shape(coords))
+        return self.value_transformed(coords)
 
     def conc_im(self,im_extents,samples=1000):
         #im extents: (xmin, ymin, xmax, ymax)
@@ -767,6 +782,123 @@ class GaussianFitPlume(object):
         return self.value(x.flatten(),
             y.flatten()).reshape((samples,samples))
 
+class AdjustedGaussianFitPlume(object):
+    """Same as above but with adjustments for crossing probs"""
+    def __init__(self,source_pos,wind_angle,wind_mag,edge_value=0.01):
+        param_address = '/home/annie/work/programming/pompy_duplicate/gaussian_approximation_take2/'
+        with open(param_address+\
+            'fit_gaussian_plume_params_odor_threshold_0.05_plume_width_factor_1.0'+\
+                '_wind_speed_'+str(wind_mag)+'.pkl','r') as f:
+            param_dict = pickle.load(f)
+
+        # self.a_a = param_dict['a_a']
+        # self.a_k = param_dict['a_k']
+        # self.sigma_a = param_dict['sigma_a']
+        # self.sigma_k = param_dict['sigma_k']
+
+        #Intermediate hacky version
+
+        self.sigmas = param_dict['sigmas']
+
+        self.mags = param_dict['as']
+        self.sigmas = np.concatenate((self.sigmas,np.ones(6*len(self.sigmas))))
+        self.mags = np.concatenate((self.mags,np.zeros(6*len(self.sigmas))))
+
+        # import matplotlib.pyplot as plt
+        # plt.hist(self.mags,bins=100)
+        # plt.show()
+
+        # self.mags = self.mags/(10.)
+        self.dx = param_dict['dx']
+
+        self.source_pos = source_pos.T #shape of input source_pos is traps x 2 (x,y)
+        # print('0',np.shape(self.source_pos))
+        self.wind_angle = wind_angle
+        self.edge_value = edge_value
+
+    def value_transformed(self,coords):
+        '''Returns the value of the plume at the inputted x,y distance
+        in the plume/wind coordinate system '''
+        #coords: 2 x targets x sources
+        #output dimension = number of targets
+        # print(np.shape(coords))
+        x,y = coords
+
+        #Intermediate hacky version
+        x_inds = np.floor(x/self.dx).astype(int)
+
+
+        #(1) For each x cross ind, compute the y bounds corresponding to the
+        #edge concentration value
+        # y_bounds = inv_Gaussian(self.mags[x_inds],
+        #     self.sigmas[x_inds],self.edge_value)
+
+        y_bounds = np.sqrt(
+            -1.*(self.sigmas[x_inds]**2)*np.log((1./self.mags[x_inds])*\
+                self.edge_value*np.sqrt(2*np.pi)))
+
+        #shape is len(x_inds) (x 1) -- symmetric so don't need both sides
+
+
+        #(2) For each x cross ind, with computed y bounds, compute (area of
+        # Gaussian between bounds / distance between bounds) = mean cross-section height
+
+        # mean_heights_P_1 = (erf(y_bounds))/(2*(y_bounds))
+
+        mean_heights_P_1 = scipy.special.erf(y_bounds/(self.sigmas[x_inds]*np.sqrt(2)))
+
+
+        # (3) Scale each Gaussian so that instead of having a mean of P_1,
+        # have a mean of p. (Same bernoulli adjustment performed in the
+        # puff_probs tests)
+
+        # *** For first pass, hard code the fly velocity, but this should be fixed ***
+
+        fly_velocity = 1.5
+        dt = 0.25
+
+        ns = ((2*y_bounds)/(fly_velocity))/dt
+
+        mean_heights_p = 1. - (1. - mean_heights_P_1)**(1./ns)
+
+        scaling_factors = mean_heights_p/mean_heights_P_1
+
+        value_by_trap =  scaling_factors*(self.mags[x_inds])/np.sqrt(2*np.pi*(
+            self.sigmas[x_inds])**2)*np.exp(
+            -(y**2)/(2*(self.sigmas[x_inds])**2))
+
+        # print(np.shape(value_by_trap))
+        # input()
+
+        #Version with fit variance and amplitude functions
+        # value_by_trap =  ((self.a_a*x**self.a_k)/np.sqrt(2*np.pi*(
+        #     self.sigma_a*x**self.sigma_k)**2))*np.exp(
+        #     -(y**2)/(2*(self.sigma_a*x**self.sigma_k)**2))
+        value_by_trap[value_by_trap>1.] = 1.
+        value_by_trap[np.isnan(value_by_trap)] = 0.
+        return np.sum(value_by_trap,axis=1)
+
+    def value(self,x,y):
+        '''For a vector of the (x,y) target locations, returns the
+        summed values over the plumes'''
+        #output dimension = number of targets
+        # print('a',np.shape(np.vstack((x,y)).T[:,:,np.newaxis]))
+        # print('b',np.shape(self.source_pos[np.newaxis,:,:]))
+        # print('c',np.shape(self.wind_angle))
+        coords = utility.shift_and_rotate(
+            np.vstack((x,y)).T[:,:,np.newaxis],
+            self.source_pos[np.newaxis,:,:],
+            -self.wind_angle)
+        # print(np.shape(coords))
+        return self.value_transformed(coords)
+
+    def conc_im(self,im_extents,samples=1000):
+        #im extents: (xmin, ymin, xmax, ymax)
+        (xmin, xmax, ymin, ymax) = im_extents
+        x,y = np.meshgrid(np.linspace(xmin,xmax,samples),
+            np.linspace(ymin,ymax,samples))
+        return self.value(x.flatten(),
+            y.flatten()).reshape((samples,samples))
 
 
 class EmpiricalWindField(object):
