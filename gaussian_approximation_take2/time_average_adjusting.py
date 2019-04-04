@@ -293,8 +293,8 @@ def make_time_averaged_plume(wind_mag):
 
 
     #
-    # plt.ion()
-    # plt.show()
+    plt.ion()
+    plt.show()
     #
     t=0.
     capture_interval = 25
@@ -357,7 +357,7 @@ def make_time_averaged_plume(wind_mag):
                 # puff_dots.set_sizes(10*r_sq)
 
 
-                # plt.pause(.0001)
+                plt.pause(.0001)
 
                 writer.grab_frame()
 
