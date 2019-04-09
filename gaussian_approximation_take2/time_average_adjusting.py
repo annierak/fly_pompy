@@ -101,7 +101,7 @@ def make_time_averaged_plume(wind_mag):
     fig = plt.figure(figsize=(4*4, 4))
 
     #Video collection
-    file_name = 'adjusted_gaussian_demo_wind_mag'+str(wind_mag)
+    file_name = 'adjusted_gaussian_test_comparison_wind_mag'+str(wind_mag)
     output_file = file_name+'.pkl'
 
     frame_rate = 20
@@ -190,7 +190,7 @@ def make_time_averaged_plume(wind_mag):
 
     #Compute initial concentration field and display as image
     ax = plt.subplot(211)
-    buffr = 1
+    buffr = 20
     ax.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
     ax.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
 
@@ -253,12 +253,14 @@ def make_time_averaged_plume(wind_mag):
             edgecolor=fly_edgecolors,facecolor = fly_facecolors,alpha=0.9)
 
 
-    axtext = ax.text(-0.1,0.5,'',transform=ax.transAxes)
+    axtext = ax.text(-0.1,0.5,'',transform=ax.transAxes,
+        verticalalignment='center',
+        horizontalalignment='center')
 
 
     #Second image: Gaussian fit plume
     ax1 = plt.subplot(212)
-    buffr = 1
+    buffr = 20
     ax1.set_xlim((xlim[0]-buffr,xlim[1]+buffr))
     ax1.set_ylim((ylim[0]-buffr,ylim[1]+buffr))
 
@@ -276,7 +278,9 @@ def make_time_averaged_plume(wind_mag):
 
     fly_dots3 = plt.scatter(swarm2.x_position, swarm2.x_position,
             edgecolor=fly_edgecolors,facecolor = fly_facecolors,alpha=0.9)
-    ax1text = ax1.text(-0.1,0.5,'',transform=ax1.transAxes)
+    ax1text = ax1.text(-0.1,0.5,'',transform=ax1.transAxes,
+        verticalalignment='center',
+        horizontalalignment='center')
 
 
     #Display initial wind vector field -- subsampled from total
@@ -293,8 +297,8 @@ def make_time_averaged_plume(wind_mag):
 
 
     #
-    plt.ion()
-    plt.show()
+    # plt.ion()
+    # plt.show()
     #
     t=0.
     capture_interval = 25
@@ -337,7 +341,12 @@ def make_time_averaged_plume(wind_mag):
                 fly_dots2.set_facecolor(fly_facecolors)
 
                 axtext.set_text(
-                    str(np.sum(swarm1.mode!=Mode_StartMode).astype(float)/len(swarm1.mode))[0:5])
+                    "Start Mode: {0:.3f} \n Surging: {1:.3f} \n Casting: {2:.3f} \n Trapped: {3:.3f} \n".format(
+                        np.sum(swarm1.mode==Mode_StartMode).astype(float)/len(swarm1.mode),
+                        np.sum(swarm1.mode==Mode_FlyUpWind).astype(float)/len(swarm1.mode),
+                        np.sum(swarm1.mode==Mode_CastForOdor).astype(float)/len(swarm1.mode),
+                        np.sum(swarm1.mode==Mode_Trapped).astype(float)/len(swarm1.mode)
+                        ))
 
                 fly_dots3.set_offsets(np.c_[swarm2.x_position,swarm2.y_position])
                 fly_edgecolors = [edgecolor_dict2[mode] for mode in swarm2.mode]
@@ -346,7 +355,12 @@ def make_time_averaged_plume(wind_mag):
                 fly_dots3.set_facecolor(fly_facecolors)
 
                 ax1text.set_text(
-                    str(np.sum(swarm2.mode!=Mode_StartMode).astype(float)/len(swarm2.mode))[0:5])
+                    "Start Mode: {0:.3f} \n Surging: {1:.3f} \n Casting: {2:.3f} \n Trapped: {3:.3f} \n".format(
+                        np.sum(swarm2.mode==Mode_StartMode).astype(float)/len(swarm1.mode),
+                        np.sum(swarm2.mode==Mode_FlyUpWind).astype(float)/len(swarm1.mode),
+                        np.sum(swarm2.mode==Mode_CastForOdor).astype(float)/len(swarm1.mode),
+                        np.sum(swarm2.mode==Mode_Trapped).astype(float)/len(swarm1.mode)
+                        ))
 
 
                 puffs_reshaped = plume_model.puffs.reshape(-1,plume_model.puffs.shape[-1])
@@ -357,7 +371,7 @@ def make_time_averaged_plume(wind_mag):
                 # puff_dots.set_sizes(10*r_sq)
 
 
-                plt.pause(.0001)
+                # plt.pause(.0001)
 
                 writer.grab_frame()
 
