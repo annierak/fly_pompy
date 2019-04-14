@@ -918,7 +918,8 @@ class OnlinePlume(object):
                  max_distance_from_trap = 3000):
         self.R = compute_1d_bin_size(max_distance_from_trap,r_sq_max,epsilon,N)
 
-
+        self.puff_mol_amt = puff_mol_amt
+        self._ampl_const = puff_mol_amt / (8 * np.pi**3)**0.5
         #------All below pasted from PlumeModel, need to trim----------
         #Save a param dictionary to access creation parameters after
         #the plume model is used and stored.
@@ -965,13 +966,19 @@ class OnlinePlume(object):
             self.centre_rel_diff_scale *= (1./(np.sqrt(dt/0.01)))
     )
 
+    def compute_Gaussian(self,px,py,pz,r_sq,x,y):
+        return (
+            self._ampl_const / r_sq**1.5 *
+            np.exp(-((x - px)**2 + (y - py)**2 + (0 - pz)**2) / (2 * r_sq))
+        )
+
 
     def value_transformed(self,coords):
         '''Returns the value of the plume at the inputted x,y distance
         in the plume/wind coordinate system '''
         #coords: 2 x targets x (# traps)
         #output dimension = number of targets
-        target_x,target_y = coords
+        target_x,target_y = coords #shape of each of these two is
 
         #Turn the x coordinate (distance from trap) into a bin index
         target_x_bin_nums = np.floor(target_x/self.R).astype(int) #Shape is targets x (# traps)
@@ -981,52 +988,59 @@ class OnlinePlume(object):
         per_bin_lambda = (self.R/self.wind_speed)*self.puff_release_rate
         puff_count_per_bin = self.prng.poisson(
             per_bin_lambda,
-                shape=len(target_x_bins))
+                shape=np.shape(target_x_bins))
 
         max_puffs_per_bin = np.max(puff_count_per_bin)
 
         varying_puff_count_mask = self.prng.binomial(
             1.,per_bin_lambda/max_puffs_per_bin,
-                size=(max_puffs_per_bin,len(target_x_bins))).astype(bool)
+                size=(np.shape(target_x_bins)[0],
+                    max_puffs_per_bin,
+                    np.shape(target_x_bins)[1]
+                    )).astype(bool)
 
         #For each x_bin (the distance bins of the targets) compute/draw the probable
         #age t of the puffs in that distance bin
 
+        #note: currently, the computation for each bin of the t, r_sq, and y is
+        #not the same for recurring appearances of the bin. Should fix this by
+        #applying some unique-fying process to bins before drawing t, r_sq, and y.
+
         #For implementation test, haven't properly computed this distribution
         #yet -- picking a fixed std
-        #shape of x_bin_t_values is same as varying_puff_count_mask:  (max_puffs_per_bin,len(target_x_bins))
         x_bin_t_values = self.prng.normal(
-            target_x_bins/self.wind_speed,10.*np.ones((max_puffs_per_bin,1)))
-        #check shape
-        assert(np.shape(x_bin_t_values)==(max_puffs_per_bin,len(target_x_bins))
+            target_x_bins[:,None,:]/self.wind_speed,10.*np.ones((1,max_puffs_per_bin,1)))
 
         #Then, compute the r_sq values that correspond to each of these bins
         #(direct function of the age t)
         puff_r_sqs = x_bin_t_values*self.puff_spread_rate
-        #shape of puff_r_sqs :  (max_puffs_per_bin,len(target_x_bins))
 
         #Draw the likely y values for these ages
         puff_y_values = self.prng.normal(0,(x_bin_t_values/self.dt)*self.centre_rel_diff_scale)
-        #shape of puff_y_values is same as varying_puff_count_mask:  (max_puffs_per_bin,len(target_x_bins))
 
-        #Make a 2d array of the x_values by stacking target_x_bins by puffs
-        puff_x_values = np.ones((max_puffs_per_bin,1))*target_x_bins
+        #Make a 3d array of the x_values by stacking target_x_bins by puffs
+        puff_x_values = np.ones((1,max_puffs_per_bin,1))*target_x_bins[:,None,:]
 
         #Assign to np.inf the x and y values for the 0 elements of the puff count mask
-        puff_y_values(np.logical_not(varying_puff_count_mask)) = np.inf
-        puff_x_values(np.logical_not(varying_puff_count_mask)) = np.inf
+        puff_y_values[np.logical_not(varying_puff_count_mask)] = np.inf
+        puff_x_values[np.logical_not(varying_puff_count_mask)] = np.inf
 
 
         #Now all that remains is in a broadcasting fashion to sum the newly
         #drawn Gaussian's contributions to each fly.
 
+        values = self.compute_Gaussian(
+            puff_x_values,puff_y_values,0.,puff_r_sqs,
+                target_x[:,None,:],
+                    target_y[:,None,:]) #initial output shape (bins x max_num_puffs x traps)
 
-        value_by_trap =  (self.mags[x_inds])/np.sqrt(2*np.pi*(
-            self.sigmas[x_inds])**2)*np.exp(
-            -(y**2)/(2*(self.sigmas[x_inds])**2))
+        values_by_trap = np.sum(values,axis=1)
+        #^ of shape (bins x traps), represents the contribution from each plume
+        # to each target's concentration value
 
-        #Before this step, the shape of value_by_trap is (targets x traps)
-        return np.sum(value_by_trap,axis=1) #now just shape (targets)
+        #Last, sum across traps to obtain a list of concentrations for each target
+        target_values = np.sum(values_by_trap,axis=1)
+        return target_values
 
     def value(self,x,y):
         '''For a vector of the (x,y) target locations, returns the
