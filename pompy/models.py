@@ -929,7 +929,8 @@ class OnlinePlume(object):
                      'puff_spread_rate', 'puff_release_rate',
                      'init_num_puffs', 'max_num_puffs']])
         self.sim_region = sim_region
-        self.wind_model = wind_model
+        self.wind_angle = wind_model.angle
+        self.wind_speed = wind_model.speed
         self.source_pos = source_pos
         self.prng = prng
         self.model_z_disp = model_z_disp
@@ -964,7 +965,6 @@ class OnlinePlume(object):
         self.dt = dt
         if dt!=0.01:
             self.centre_rel_diff_scale *= (1./(np.sqrt(dt/0.01)))
-    )
 
     def compute_Gaussian(self,px,py,pz,r_sq,x,y):
         return (
@@ -979,16 +979,21 @@ class OnlinePlume(object):
         #coords: 2 x targets x (# traps)
         #output dimension = number of targets
         target_x,target_y = coords #shape of each of these two is
+        if len(target_x)==0:
+            return np.array([])
 
         #Turn the x coordinate (distance from trap) into a bin index
         target_x_bin_nums = np.floor(target_x/self.R).astype(int) #Shape is targets x (# traps)
         target_x_bins = target_x_bin_nums*self.R
+        print('R: '+str(self.R))
+        print('num bins per trap: '+str(np.max(target_x_bin_nums)))
+        # print(target_x_bins[:20])
 
         #For each x bin, draw the likely number of puffs in it
         per_bin_lambda = (self.R/self.wind_speed)*self.puff_release_rate
         puff_count_per_bin = self.prng.poisson(
             per_bin_lambda,
-                shape=np.shape(target_x_bins))
+                size=np.shape(target_x_bins))
 
         max_puffs_per_bin = np.max(puff_count_per_bin)
 
@@ -1016,7 +1021,10 @@ class OnlinePlume(object):
         puff_r_sqs = x_bin_t_values*self.puff_spread_rate
 
         #Draw the likely y values for these ages
-        puff_y_values = self.prng.normal(0,(x_bin_t_values/self.dt)*self.centre_rel_diff_scale)
+        puff_y_values = np.zeros_like(x_bin_t_values)
+        puff_y_values[x_bin_t_values<0] = np.inf #The bins that are negative should have puffs at infinity
+        puff_y_values[x_bin_t_values>=0] = self.prng.normal(
+            0,(x_bin_t_values[x_bin_t_values>=0]/self.dt)*self.centre_rel_diff_scale)
 
         #Make a 3d array of the x_values by stacking target_x_bins by puffs
         puff_x_values = np.ones((1,max_puffs_per_bin,1))*target_x_bins[:,None,:]
@@ -1029,10 +1037,14 @@ class OnlinePlume(object):
         #Now all that remains is in a broadcasting fashion to sum the newly
         #drawn Gaussian's contributions to each fly.
 
+        t_last = time.time()
+        print(np.shape(puff_x_values))
+        raw_input()
         values = self.compute_Gaussian(
             puff_x_values,puff_y_values,0.,puff_r_sqs,
                 target_x[:,None,:],
                     target_y[:,None,:]) #initial output shape (bins x max_num_puffs x traps)
+        print('Gaussian computation time:'+str(time.time()-t_last))
 
         values_by_trap = np.sum(values,axis=1)
         #^ of shape (bins x traps), represents the contribution from each plume
@@ -1041,6 +1053,14 @@ class OnlinePlume(object):
         #Last, sum across traps to obtain a list of concentrations for each target
         target_values = np.sum(values_by_trap,axis=1)
         return target_values
+
+    def conc_im(self,im_extents,samples=1000):
+        #im extents: (xmin, ymin, xmax, ymax)
+        (xmin, xmax, ymin, ymax) = im_extents
+        x,y = np.meshgrid(np.linspace(xmin,xmax,samples),
+            np.linspace(ymin,ymax,samples))
+        return self.value(x.flatten(),
+            y.flatten()).reshape((samples,samples))
 
     def value(self,x,y):
         '''For a vector of the (x,y) target locations, returns the
