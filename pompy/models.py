@@ -19,6 +19,7 @@ import h5_logger
 import cPickle as pickle
 import os
 import time
+import matplotlib.pyplot as plt
 
 class Puff(object):
     """
@@ -312,6 +313,7 @@ class PlumeModel(object):
 
         filament_diff_vel = (self.prng.normal(size=(num_active,self._vel_dim)) *
             self.centre_rel_diff_scale)
+        print(self.centre_rel_diff_scale)
 
         vel = wind_vel + filament_diff_vel
 
@@ -985,8 +987,8 @@ class OnlinePlume(object):
         #Turn the x coordinate (distance from trap) into a bin index
         target_x_bin_nums = np.floor(target_x/self.R).astype(int) #Shape is targets x (# traps)
         target_x_bins = target_x_bin_nums*self.R
-        print('R: '+str(self.R))
-        print('num bins per trap: '+str(np.max(target_x_bin_nums)))
+        # print('R: '+str(self.R))
+        # print('num bins per trap: '+str(np.max(target_x_bin_nums)))
         # print(target_x_bins[:20])
 
         #For each x bin, draw the likely number of puffs in it
@@ -1014,7 +1016,12 @@ class OnlinePlume(object):
         #For implementation test, haven't properly computed this distribution
         #yet -- picking a fixed std
         x_bin_t_values = self.prng.normal(
-            target_x_bins[:,None,:]/self.wind_speed,10.*np.ones((1,max_puffs_per_bin,1)))
+            target_x_bins[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
+
+        max_t = (np.max(target_x))/self.wind_speed
+        print('max time should be '+str(max_t))
+        print('t/delta t '+str((max_t/self.dt)))
+        print('sigma_d '+str((self.centre_rel_diff_scale*self.dt)))
 
         #Then, compute the r_sq values that correspond to each of these bins
         #(direct function of the age t)
@@ -1023,8 +1030,11 @@ class OnlinePlume(object):
         #Draw the likely y values for these ages
         puff_y_values = np.zeros_like(x_bin_t_values)
         puff_y_values[x_bin_t_values<0] = np.inf #The bins that are negative should have puffs at infinity
+        puff_r_sqs[x_bin_t_values<0] = 1e20 #The bins that are negative should have v large r_sqs (don't make them inf because will lead to nans)
         puff_y_values[x_bin_t_values>=0] = self.prng.normal(
-            0,(x_bin_t_values[x_bin_t_values>=0]/self.dt)*self.centre_rel_diff_scale)
+            0,(x_bin_t_values[x_bin_t_values>=0])*self.centre_rel_diff_scale/100.)
+
+
 
         #Make a 3d array of the x_values by stacking target_x_bins by puffs
         puff_x_values = np.ones((1,max_puffs_per_bin,1))*target_x_bins[:,None,:]
@@ -1033,19 +1043,23 @@ class OnlinePlume(object):
         puff_y_values[np.logical_not(varying_puff_count_mask)] = np.inf
         puff_x_values[np.logical_not(varying_puff_count_mask)] = np.inf
 
+        # plt.figure()
+        # plt.hist(x_bin_t_values[x_bin_t_values>0.])
+        #
+        plt.figure()
+        plt.scatter(puff_x_values.flatten(),puff_y_values.flatten(),alpha=0.1)
+        plt.show()
 
         #Now all that remains is in a broadcasting fashion to sum the newly
         #drawn Gaussian's contributions to each fly.
 
         t_last = time.time()
-        print(np.shape(puff_x_values))
-        raw_input()
         values = self.compute_Gaussian(
             puff_x_values,puff_y_values,0.,puff_r_sqs,
                 target_x[:,None,:],
                     target_y[:,None,:]) #initial output shape (bins x max_num_puffs x traps)
-        print('Gaussian computation time:'+str(time.time()-t_last))
 
+        print('Gaussian computation time:'+str(time.time()-t_last))
         values_by_trap = np.sum(values,axis=1)
         #^ of shape (bins x traps), represents the contribution from each plume
         # to each target's concentration value
@@ -1054,7 +1068,7 @@ class OnlinePlume(object):
         target_values = np.sum(values_by_trap,axis=1)
         return target_values
 
-    def conc_im(self,im_extents,samples=1000):
+    def conc_im(self,im_extents,samples=500):
         #im extents: (xmin, ymin, xmax, ymax)
         (xmin, xmax, ymin, ymax) = im_extents
         x,y = np.meshgrid(np.linspace(xmin,xmax,samples),
