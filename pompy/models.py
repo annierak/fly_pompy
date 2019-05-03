@@ -965,8 +965,9 @@ class OnlinePlume(object):
         #self.centre_rel_diff_scale by 1/(sqrt(N)).
 
         self.dt = dt
-        if dt!=0.01:
-            self.centre_rel_diff_scale *= (1./(np.sqrt(dt/0.01)))
+        #In this context, since we don't live update, we want the centre_rel_diff_scale
+        #to be in per second.
+        self.centre_rel_diff_scale *= (1./(np.sqrt(1./0.01)))
 
     def compute_Gaussian(self,px,py,pz,r_sq,x,y):
         return (
@@ -1018,10 +1019,10 @@ class OnlinePlume(object):
         x_bin_t_values = self.prng.normal(
             target_x_bins[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
 
-        max_t = (np.max(target_x))/self.wind_speed
-        print('max time should be '+str(max_t))
-        print('t/delta t '+str((max_t/self.dt)))
-        print('sigma_d '+str((self.centre_rel_diff_scale*self.dt)))
+        # max_t = (np.max(target_x))/self.wind_speed
+        # print('max time should be '+str(max_t))
+        # print('t/delta t '+str((max_t/self.dt)))
+        # print('sigma_d '+str((self.centre_rel_diff_scale*self.dt)))
 
         #Then, compute the r_sq values that correspond to each of these bins
         #(direct function of the age t)
@@ -1031,13 +1032,19 @@ class OnlinePlume(object):
         puff_y_values = np.zeros_like(x_bin_t_values)
         puff_y_values[x_bin_t_values<0] = np.inf #The bins that are negative should have puffs at infinity
         puff_r_sqs[x_bin_t_values<0] = 1e20 #The bins that are negative should have v large r_sqs (don't make them inf because will lead to nans)
+        print('online plume centre_rel_diff_scale: '+str(self.centre_rel_diff_scale))
+
         puff_y_values[x_bin_t_values>=0] = self.prng.normal(
-            0,(x_bin_t_values[x_bin_t_values>=0])*self.centre_rel_diff_scale/100.)
+            0,self.centre_rel_diff_scale*np.sqrt(x_bin_t_values[x_bin_t_values>=0]))
 
 
 
         #Make a 3d array of the x_values by stacking target_x_bins by puffs
         puff_x_values = np.ones((1,max_puffs_per_bin,1))*target_x_bins[:,None,:]
+
+        #Add uniformly distributed noise to spread them accross the bin space
+        puff_x_values += np.random.uniform(0.,self.R,size=np.shape(puff_x_values))
+
 
         #Assign to np.inf the x and y values for the 0 elements of the puff count mask
         puff_y_values[np.logical_not(varying_puff_count_mask)] = np.inf
@@ -1046,9 +1053,15 @@ class OnlinePlume(object):
         # plt.figure()
         # plt.hist(x_bin_t_values[x_bin_t_values>0.])
         #
-        plt.figure()
-        plt.scatter(puff_x_values.flatten(),puff_y_values.flatten(),alpha=0.1)
-        plt.show()
+        # plt.figure()
+        # plt.scatter(puff_x_values.flatten()[::10],puff_y_values.flatten()[::10],alpha=0.1)
+        # plt.xlim((0., 1800.))
+        # plt.ylim((-30., 30.))
+        # plt.title(str(np.sum(~np.isinf(puff_x_values[puff_x_values<1800.]))))
+        # print(np.shape(varying_puff_count_mask))
+        # plt.title(str(np.sum(varying_puff_count_mask[puff_x_values<1800.])))
+        #
+        # plt.show()
 
         #Now all that remains is in a broadcasting fashion to sum the newly
         #drawn Gaussian's contributions to each fly.
@@ -1458,3 +1471,147 @@ class WindStorer(object):
     def store(self,velocity_field):
         data = {'velocity_field':velocity_field}
         self.logger.add(data)
+
+class PlumeModelCopy(object):
+
+    """
+    Copy of PlumeModel to work on getting OnlinePlume to successfully imitate it.
+    (prints and computes more)
+
+    """
+
+    def __init__(self, sim_region, source_pos, wind_model, simulation_time,dt,
+                plume_cutoff_radius = 4000, model_z_disp=True,
+                 centre_rel_diff_scale=2., puff_init_rad=0.03,
+                 puff_spread_rate=0.001, puff_release_rate=10,
+                 init_num_puffs=10, max_num_puffs=1000, prng=np.random,
+                 max_distance_from_trap = 3000):
+        #Save a param dictionary to access creation parameters after
+        #the plume model is used and stored.
+        l = locals()
+        self.param = dict([(k,l[k]) for k in ['model_z_disp',
+                     'centre_rel_diff_scale', 'puff_init_rad',
+                     'puff_spread_rate', 'puff_release_rate',
+                     'init_num_puffs', 'max_num_puffs']])
+        self.sim_region = sim_region
+        self.plume_cutoff_radius = plume_cutoff_radius
+        self.wind_model = wind_model
+        self.source_pos = source_pos
+        self.prng = prng
+        self.model_z_disp = model_z_disp
+        self.unique_sources = len(source_pos[0,:])
+        self._vel_dim = 3 if model_z_disp else 2
+        if (model_z_disp and hasattr(centre_rel_diff_scale, '__len__') and
+                len(centre_rel_diff_scale) == 2):
+            raise InvalidCentreRelDiffScaleError('When model_z_disp=True, \
+                                                  len(centre_rel_diff_scale) \
+                                                  must be 1 or 3')
+        self.centre_rel_diff_scale = centre_rel_diff_scale
+        for i in range(self.unique_sources):
+            if not sim_region.contains(source_pos[0,i], source_pos[1,i]):
+                raise InvalidSourcePositionError('Specified source (x,y) \
+                                              position must be within \
+                                              simulation region.')
+        # default to zero height source
+        self.source_z = 0
+        if len(source_pos) == 3:
+            self.source_z = source_pos[2]
+        self.puff_init_rad = puff_init_rad
+        self._new_puff_params = (source_pos[0], source_pos[1], self.source_z,
+                                 puff_init_rad**2)
+        self.puff_spread_rate = puff_spread_rate
+        self.puff_release_rate = puff_release_rate
+
+        #Since the distance from the trap is closely proxied by
+        #the time passed*wind_speed, and puff r_sq = time passed*puff_spread_rate,
+        #choose a maximum puff_r_sq at which to remove puffs from the simulation
+
+        wind_speed = wind_model.mag
+        self.max_puff_r_sq = (max_distance_from_trap/wind_speed)*self.puff_spread_rate
+
+
+        self.max_num_puffs = max_num_puffs
+        # 1/25/2019: the puff list is an array of size
+        # num_traps x (1.1 x simulation_time x release rate) x 4 (data points per puff)
+        self.puffs = np.full((self.unique_sources,int(np.ceil(1.2*self.puff_release_rate*
+            simulation_time)),5),np.nan)
+        for j in range(self.unique_sources):
+            self.puffs[j,0:init_num_puffs,:-1] = \
+                np.ones((init_num_puffs,1))*np.array([[source_pos[0,j],source_pos[1,j], \
+                    self.source_z,puff_init_rad**2]])
+        self.last_puff_ind = init_num_puffs
+
+        #The parameter 'centre_rel_diff_scale' needs to be scaled if the time
+        #step is not 0.01. For a dt of some factor N times 0.01 (the original dt),
+        #to achieve the same puff-to-centerline variance, multiply
+        #self.centre_rel_diff_scale by 1/(sqrt(N)).
+
+        #For reference centre_rel_diff_scale is the std of the diffusion step size
+        #per time step.
+
+        self.dt = dt
+        if dt!=0.01:
+            self.centre_rel_diff_scale *= (1./(np.sqrt(dt/0.01)))
+
+
+
+    def update(self,dt,t,verbose=False):
+        print('regular plume centre_rel_diff_scale: '+str(self.centre_rel_diff_scale))
+        """Perform time-step update of plume model with Euler integration."""
+        # add more puffs (stochastically) if enough capacity
+        # if len(self.puffs) < self.max_num_puffs*self.unique_sources:
+        #UPDATE 7/17/18: I am REMOVING the puff cap.
+            # puff release modelled as Poisson process at fixed mean rate
+            # with number to release clipped if it would otherwise exceed
+            # the maximum allowed
+        #Right now the num to release is same across traps
+        num_to_release = self.prng.poisson(self.puff_release_rate*dt)
+        for j in range(self.unique_sources):
+            self.puffs[j,self.last_puff_ind:self.last_puff_ind+num_to_release,:-1] = \
+                np.ones((num_to_release,1))*np.array([[self.source_pos[0,j],self.source_pos[1,j], \
+                    self.source_z,self.puff_init_rad**2]])
+            self.puffs[j,self.last_puff_ind:self.last_puff_ind+num_to_release,4] = t
+
+        self.last_puff_ind +=num_to_release
+        puffs_active = ~np.isnan(self.puffs)
+        num_active = np.sum(puffs_active[:,:,0])
+        if verbose:
+            print(str(num_active)+' puffs active')
+        # print(np.shape(puffs_active))
+        #traps by puffs
+        # interpolate wind velocity at Puff positions from wind model grid
+        # assuming zero wind speed in vertical direction if modelling
+        # z direction dispersion
+        wind_vel = self.wind_model.velocity_at_pos(
+            self.puffs[:,:,0][puffs_active[:,:,0]],
+                self.puffs[:,:,1][puffs_active[:,:,1]])
+
+        if self._vel_dim>2:
+            # print('here')
+            wind_vel = np.hstack((wind_vel,np.zeros(num_active)[:,np.newaxis]))
+
+        # approximate centre-line relative puff transport velocity
+        # component as being a (Gaussian) white noise process scaled by
+        # constants
+
+        filament_diff_vel = (self.prng.normal(size=(num_active,self._vel_dim)) *
+            self.centre_rel_diff_scale)
+        vel = wind_vel + filament_diff_vel
+        # plt.figure()
+        # plt.hist(vel[:,1]*dt)
+        # plt.show()
+
+        # update puff position using Euler integration
+        self.puffs[:,:,0][puffs_active[:,:,0]] += vel[:,0] * dt
+        self.puffs[:,:,1][puffs_active[:,:,1]] += vel[:,1] * dt
+        if self.model_z_disp:
+            self.puffs[:,:,2][puffs_active[:,:,2]] += vel[:,2] * dt
+        # update puff size using Euler integration with second puff
+        # growth model described in paper
+        self.puffs[:,:,3][puffs_active[:,:,3]] += self.puff_spread_rate * dt
+
+        # num_traps  x (1.1 x simulation_time x release rate) x 4 (data points per puff)
+
+        #Remove the puffs that have exceeded the max_puff_r_sq
+        to_cut = self.puffs[:,:,3] >  self.max_puff_r_sq
+        self.puffs[to_cut] = np.nan
