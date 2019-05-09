@@ -990,6 +990,7 @@ class OnlinePlume(object):
         t1 = time.time()
 
         target_x_bins = np.floor(target_x/self.R).astype(int)
+        print('bins with flies in them: '+str(target_x_bins))
         min_bin,max_bin = np.min(target_x_bins),np.max(target_x_bins)
         mask = (target_x_bins[None,:,:]*np.ones((max_bin-min_bin+1,1,1)))==(np.ones_like(
             target_x_bins)[None,:,:]*np.arange(min_bin,max_bin+1)[:,None,None])
@@ -1026,10 +1027,10 @@ class OnlinePlume(object):
 
         #For implementation test, haven't properly computed this distribution
         #yet -- picking a fixed std
-        unique_bins_by_trap = (self.R*np.arange(min_bin,max_bin+1)[:,None]*np.ones(
+        all_bins_by_trap = (self.R*np.arange(min_bin,max_bin+1)[:,None]*np.ones(
             self.num_traps))
         x_bin_t_values = self.prng.normal(
-            unique_bins_by_trap[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
+            all_bins_by_trap[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
 
         #Then, compute the r_sq values that correspond to each of these bins
         #(direct function of the age t)
@@ -1043,11 +1044,15 @@ class OnlinePlume(object):
 
         puff_y_values[x_bin_t_values>=0] = self.prng.normal(
             0,self.centre_rel_diff_scale*np.sqrt(x_bin_t_values[x_bin_t_values>=0]))
-
-
+        #
+        # plt.figure()
+        # # plt.hist(puff_r_sqs[puff_r_sqs<1e3].flatten())
+        # plt.hist(x_bin_t_values.flatten())
+        # plt.show()
+        # raw_input()
 
         #Make a 3d array of the x_values by stacking target_x_bins by puffs
-        puff_x_values = np.ones((1,max_puffs_per_bin,1))*unique_bins_by_trap[:,None,:]
+        puff_x_values = np.ones((1,max_puffs_per_bin,1))*all_bins_by_trap[:,None,:]
 
         #Add uniformly distributed noise to spread them accross the bin space
         puff_x_values += np.random.uniform(0.,self.R,size=np.shape(puff_x_values))
@@ -1057,18 +1062,23 @@ class OnlinePlume(object):
         puff_y_values[np.logical_not(varying_puff_count_mask)] = np.inf
         puff_x_values[np.logical_not(varying_puff_count_mask)] = np.inf
 
-        # plt.figure()
-        # plt.hist(x_bin_t_values[x_bin_t_values>0.])
+        plt.figure()
+        plt.hist(x_bin_t_values[x_bin_t_values>0.])
+
+        plt.figure()
+        plt.scatter(puff_x_values.flatten()[::10],puff_y_values.flatten()[::10],
+            alpha=0.1,c=puff_r_sqs.flatten()[::10])
+        plt.xlim((0., 1800.))
+        plt.ylim((-30., 30.))
+        plt.title(str(np.sum(~np.isinf(puff_x_values[puff_x_values<1800.]))))
+        print(np.shape(varying_puff_count_mask))
+        plt.title(str(np.sum(varying_puff_count_mask[puff_x_values<1800.])))
+        plt.colorbar()
+        raw_input()
         #
-        # plt.figure()
-        # plt.scatter(puff_x_values.flatten()[::10],puff_y_values.flatten()[::10],alpha=0.1)
-        # plt.xlim((0., 1800.))
-        # plt.ylim((-30., 30.))
-        # plt.title(str(np.sum(~np.isinf(puff_x_values[puff_x_values<1800.]))))
-        # print(np.shape(varying_puff_count_mask))
-        # plt.title(str(np.sum(varying_puff_count_mask[puff_x_values<1800.])))
+        # plt.savefig('viz_test',format='png')
         #
-        # plt.show()
+        # sys.exit()
 
         #Now all that remains is in a broadcasting fashion to sum the newly
         #drawn Gaussian's contributions to each fly.
@@ -1094,7 +1104,7 @@ class OnlinePlume(object):
                 reshaped_target_x[:,:,None,:],
                     reshaped_target_y[:,:,None,:]]
 
-        args = [sparse.COO(arg) for arg in args]
+        # args = [sparse.COO(arg) for arg in args]
 
         # values = self.compute_Gaussian(*args)
         values = self.compute_Gaussian(*args)
@@ -1103,13 +1113,18 @@ class OnlinePlume(object):
         #output shape (bins x traps x puffs x flies)
 
         print('Gaussian computation time:'+str(time.time()-t_last))
-        raw_input()
+        # raw_input()
         values_by_trap = np.sum(values,axis=2)
+        print(values_by_trap[values_by_trap>0])
         #now shape (bins x traps x flies), represents the contribution from each trap-bin
         # to each target's concentration value
 
         #Sum across trap-bins to obtain a list of concentrations for each target
         target_values = np.sum(values_by_trap,axis=(0,1))
+
+        print(target_values)
+        # raw_input()
+
         return target_values
 
     def conc_im(self,im_extents,samples=500):
