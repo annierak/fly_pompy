@@ -20,6 +20,8 @@ import cPickle as pickle
 import os
 import time
 import matplotlib.pyplot as plt
+import pandas as pd
+import sparse
 
 class Puff(object):
     """
@@ -936,7 +938,7 @@ class OnlinePlume(object):
         self.source_pos = source_pos
         self.prng = prng
         self.model_z_disp = model_z_disp
-        self.unique_sources = len(source_pos[0,:])
+        self.num_traps = len(source_pos[0,:])
         self._vel_dim = 3 if model_z_disp else 2
         if (model_z_disp and hasattr(centre_rel_diff_scale, '__len__') and
                 len(centre_rel_diff_scale) == 2):
@@ -944,7 +946,7 @@ class OnlinePlume(object):
                                                   len(centre_rel_diff_scale) \
                                                   must be 1 or 3')
         self.centre_rel_diff_scale = centre_rel_diff_scale
-        for i in range(self.unique_sources):
+        for i in range(self.num_traps):
             if not sim_region.contains(source_pos[0,i], source_pos[1,i]):
                 raise InvalidSourcePositionError('Specified source (x,y) \
                                               position must be within \
@@ -981,30 +983,38 @@ class OnlinePlume(object):
         in the plume/wind coordinate system '''
         #coords: 2 x targets x (# traps)
         #output dimension = number of targets
-        target_x,target_y = coords #shape of each of these two is
+        target_x,target_y = np.swapaxes(coords,1,2)
+        #shape of each of these two is (traps x flies)
         if len(target_x)==0:
             return np.array([])
+        t1 = time.time()
 
-        #Turn the x coordinate (distance from trap) into a bin index
-        target_x_bin_nums = np.floor(target_x/self.R).astype(int) #Shape is targets x (# traps)
-        target_x_bins = target_x_bin_nums*self.R
-        # print('R: '+str(self.R))
-        # print('num bins per trap: '+str(np.max(target_x_bin_nums)))
-        # print(target_x_bins[:20])
+        target_x_bins = np.floor(target_x/self.R).astype(int)
+        min_bin,max_bin = np.min(target_x_bins),np.max(target_x_bins)
+        mask = (target_x_bins[None,:,:]*np.ones((max_bin-min_bin+1,1,1)))==(np.ones_like(
+            target_x_bins)[None,:,:]*np.arange(min_bin,max_bin+1)[:,None,None])
+        reshaped_target_x = target_x*mask
+        reshaped_target_y = target_y*mask
+        dur = time.time()-t1
+        print('time spend rearranging flies: '+str(dur))
+
+        print(np.shape(reshaped_target_x))
+        # raw_input()
+
 
         #For each x bin, draw the likely number of puffs in it
         per_bin_lambda = (self.R/self.wind_speed)*self.puff_release_rate
         puff_count_per_bin = self.prng.poisson(
             per_bin_lambda,
-                size=np.shape(target_x_bins))
+                size=(max_bin-min_bin+1,self.num_traps))
 
         max_puffs_per_bin = np.max(puff_count_per_bin)
 
         varying_puff_count_mask = self.prng.binomial(
             1.,per_bin_lambda/max_puffs_per_bin,
-                size=(np.shape(target_x_bins)[0],
+                size=(np.shape(puff_count_per_bin)[0],
                     max_puffs_per_bin,
-                    np.shape(target_x_bins)[1]
+                    np.shape(puff_count_per_bin)[1]
                     )).astype(bool)
 
         #For each x_bin (the distance bins of the targets) compute/draw the probable
@@ -1016,13 +1026,10 @@ class OnlinePlume(object):
 
         #For implementation test, haven't properly computed this distribution
         #yet -- picking a fixed std
+        unique_bins_by_trap = (self.R*np.arange(min_bin,max_bin+1)[:,None]*np.ones(
+            self.num_traps))
         x_bin_t_values = self.prng.normal(
-            target_x_bins[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
-
-        # max_t = (np.max(target_x))/self.wind_speed
-        # print('max time should be '+str(max_t))
-        # print('t/delta t '+str((max_t/self.dt)))
-        # print('sigma_d '+str((self.centre_rel_diff_scale*self.dt)))
+            unique_bins_by_trap[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
 
         #Then, compute the r_sq values that correspond to each of these bins
         #(direct function of the age t)
@@ -1040,7 +1047,7 @@ class OnlinePlume(object):
 
 
         #Make a 3d array of the x_values by stacking target_x_bins by puffs
-        puff_x_values = np.ones((1,max_puffs_per_bin,1))*target_x_bins[:,None,:]
+        puff_x_values = np.ones((1,max_puffs_per_bin,1))*unique_bins_by_trap[:,None,:]
 
         #Add uniformly distributed noise to spread them accross the bin space
         puff_x_values += np.random.uniform(0.,self.R,size=np.shape(puff_x_values))
@@ -1067,18 +1074,42 @@ class OnlinePlume(object):
         #drawn Gaussian's contributions to each fly.
 
         t_last = time.time()
-        values = self.compute_Gaussian(
-            puff_x_values,puff_y_values,0.,puff_r_sqs,
-                target_x[:,None,:],
-                    target_y[:,None,:]) #initial output shape (bins x max_num_puffs x traps)
+
+        #input to output shapes:
+        # puff variables (bins x traps x puffs) + fly variables (bins x traps x flies) -->
+        # output (bins x traps x puffs x flies)
+
+        puff_x_values=np.swapaxes(puff_x_values,1,2)
+        puff_y_values=np.swapaxes(puff_y_values,1,2)
+        puff_r_sqs=np.swapaxes(puff_r_sqs,1,2)
+
+        print(np.shape(reshaped_target_x))
+        print(np.shape(puff_x_values))
+        print(np.shape(puff_y_values))
+        # raw_input()
+
+        args = [puff_x_values[:,:,:,None],puff_y_values[:,:,:,None],
+        np.zeros_like(puff_x_values)[:,:,:,None],
+        puff_r_sqs[:,:,:,None],
+                reshaped_target_x[:,:,None,:],
+                    reshaped_target_y[:,:,None,:]]
+
+        args = [sparse.COO(arg) for arg in args]
+
+        # values = self.compute_Gaussian(*args)
+        values = self.compute_Gaussian(*args)
+
+        #.todense()
+        #output shape (bins x traps x puffs x flies)
 
         print('Gaussian computation time:'+str(time.time()-t_last))
-        values_by_trap = np.sum(values,axis=1)
-        #^ of shape (bins x traps), represents the contribution from each plume
+        raw_input()
+        values_by_trap = np.sum(values,axis=2)
+        #now shape (bins x traps x flies), represents the contribution from each trap-bin
         # to each target's concentration value
 
-        #Last, sum across traps to obtain a list of concentrations for each target
-        target_values = np.sum(values_by_trap,axis=1)
+        #Sum across trap-bins to obtain a list of concentrations for each target
+        target_values = np.sum(values_by_trap,axis=(0,1))
         return target_values
 
     def conc_im(self,im_extents,samples=500):
@@ -1096,7 +1127,6 @@ class OnlinePlume(object):
 
         #First, send the target locations into the plume origin
         #coordinate space
-
         coords = utility.shift_and_rotate(
             np.vstack((x,y)).T[:,:,np.newaxis],
             self.source_pos[np.newaxis,:,:],
@@ -1615,3 +1645,37 @@ class PlumeModelCopy(object):
         #Remove the puffs that have exceeded the max_puff_r_sq
         to_cut = self.puffs[:,:,3] >  self.max_puff_r_sq
         self.puffs[to_cut] = np.nan
+
+#Draft of bin reshaping for lazy plumes
+    # #Turn the x coordinate (distance from trap) into a bin index
+    # target_x_bin_nums = np.floor(target_x/self.R).astype(float) #Shape is targets x (# traps)
+    # target_x_bin_nums[target_x_bin_nums<0] = np.nan
+    # t1 = time.time()
+    # unique_x_bins,other_inds,unique_bin_inds,unique_counts = np.unique(
+    #     target_x_bin_nums,return_index=True,return_inverse=True,return_counts=True)
+    #     #unique_bin_inds are the inds such that unique_x_bins[unique_bin_inds] = target_x_bin_nums
+    # sorted_bins_fly_inds = np.argsort(target_x_bin_nums,axis=0) #the indices of what order to place the flies to get them sorted by bin
+    # # sorted_bins_with_counts = target_x_bin_nums[sorted_bins_fly_inds] #not sure how to make this work or whether it's worth it (https://stackoverflow.com/questions/48072007/how-to-use-numpy-argsort-as-indices-in-more-than-2-dimensions)
+    # sorted_bins_with_counts = np.sort(target_x_bin_nums,axis=0)
+    # print(sorted_bins_with_counts)
+    #
+    # target_x_bins = unique_x_bins*self.R
+    #
+    # #We need to reshape the targets so that they have a bin axis
+    # #desired shape of target_x: (n_bins x traps x flies)
+    #
+    #
+    # max_flies_per_bin = np.max(unique_counts)
+    # target_x_reshaped = np.zeros((int(max(unique_x_bins))+1,self.num_traps,max_flies_per_bin))
+    # for i in range(self.num_traps):
+    #     print('-----------------')
+    #     print(sorted_bins_with_counts[:,i])
+    #     I = np.where(np.diff(sorted_bins_with_counts[:,i])>0.)
+    #     ragged_arr = np.split(sorted_bins_fly_inds[:,i],I[0]+1)
+    #     unragged = pd.DataFrame(ragged_arr).values
+    #     print(unragged)
+    #     # target_x_reshaped[np.unique(sorted_bins_with_counts[:,i]).astype(int),i,:np.shape(unragged)[1]] = unragged
+    #     raw_input()
+    #
+    #
+    #
