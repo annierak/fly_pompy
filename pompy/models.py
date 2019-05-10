@@ -989,25 +989,35 @@ class OnlinePlume(object):
         t1 = time.time()
 
 
-        #For each fly, compute its distance to each
-        #source (just using target_x and target_y), and based on which is shortest
+        #For each fly, based on for which trap it has the smallest absolute y value,
         #AND has positive x, set the entries for all other bin-trap pairs for
         #that fly to np.inf
 
-        fly_distances = np.sqrt(np.square(target_x)+np.square(target_y)) #(shape traps x flies)
-        fly_distances[target_x<0.] = np.inf
+        target_y_abs = np.abs(target_y)
+        target_y_abs[target_x<0.] = np.inf
 
-        closest_traps =  np.argmin(fly_distances,axis=0)
+        print('bin length: '+str(self.R))
 
-        target_x_closest = np.zeros_like(target_x)
-        target_y_closest = np.zeros_like(target_y)
-        target_x_closest[closest_traps,np.arange(np.shape(fly_distances))[1]] = target_x[closest_traps,np.arange(np.shape(fly_distances))[1]]
-        target_y_closest[closest_traps,np.arange(np.shape(fly_distances))[1]] = target_y[closest_traps,np.arange(np.shape(fly_distances))[1]]
+        print('y_abs for each trap: '+str(target_y_abs))
+
+        closest_traps =  np.argmin(target_y_abs,axis=0)
+        print('closest traps: '+str(closest_traps))
+
+        target_x_closest = np.full_like(target_x,np.nan)
+        target_y_closest = np.full_like(target_y,np.nan)
+        target_x_closest[closest_traps,np.arange(np.shape(target_y_abs)[1])] = target_x[closest_traps,np.arange(np.shape(target_y_abs)[1])]
+        target_y_closest[closest_traps,np.arange(np.shape(target_y_abs)[1])] = target_y[closest_traps,np.arange(np.shape(target_y_abs)[1])]
         target_x_bins = np.floor(target_x_closest/self.R).astype(int) #(shape traps x flies)
-        min_bin,max_bin = 0.,np.max(target_x_bins)
+        min_bin,max_bin = 0,np.max(target_x_bins)
+
+        print('target_x_bins: '+str(target_x_bins))
+        print('bins involved: '+str(np.arange(min_bin,max_bin+1)))
+
 
         mask = (target_x_bins[None,:,:]*np.ones((max_bin-min_bin+1,1,1)))==(np.ones_like(
             target_x_bins)[None,:,:]*np.arange(min_bin,max_bin+1)[:,None,None])
+
+        print('mask: '+str(mask.astype(int)))
 
         # mask is shape (bins x traps x flies)
         # Now mask should only have, for each fly-column, one trap-row that has an entry in it.
@@ -1016,22 +1026,29 @@ class OnlinePlume(object):
         #Record which bin-trap pairs which, when we sum across flies, have
         #at least one fly in them. (nonempty_bin_mask=M)
         nonempty_bin_mask = (np.sum(mask,axis=2)>0) #shape (bins x traps)
-
+        print('nonempty_bin_mask: '+str(nonempty_bin_mask.astype(int)))
         #Record which traps have non-empty bins (from M)
         #and then collapse the bins into a row vector, preserving the bin value as the entry (N)
-        num_nonempty_bins = np.sum(M,axis=0) #now len = traps
-        collapsed_bins = np.zeros(2,np.sum(num_nonempty_bins))
+        num_nonempty_bins = np.sum(nonempty_bin_mask,axis=0) #now len = traps
+        collapsed_bins = np.zeros((2,np.sum(num_nonempty_bins)))
+        print('total bin count: '+str(np.sum(num_nonempty_bins)))
+        print('trap bin counts: '+str(num_nonempty_bins))
         last = 0
         for trap,trap_bin_count in enumerate(num_nonempty_bins):
-            collapsed_bins[0,last:trap_bin_count] = np.where(nonempty_bin_mask[:,trap]==0)[0]
+            collapsed_bins[0,last:trap_bin_count] = np.where(nonempty_bin_mask[:,trap]>0)[0]
             collapsed_bins[1,last:trap_bin_count] = trap
             last = trap_bin_count
-
+        print('collapsed_bins: '+str(collapsed_bins))
+        raw_input()
         #Of the non-empty bin-trap pairs determined by M, compute the max
         #per-bin-trap fly count, and make a shortened M, M1 which records the
         #filled fly column for each bin-trap. (using np.where)
 
-        collapsed_bin_inds,fly_inds  = np.where(mask[collapsed_bins[0,:],collapsed_bins[1,:],:])
+        collapsed_bin_inds,fly_inds  = np.where(
+            mask[collapsed_bins[0,:].astype(int),collapsed_bins[1,:].astype(int),:])
+        collapsed_bin_inds = collapsed_bins[0,collapsed_bin_inds]
+        print(collapsed_bin_inds,fly_inds)
+        raw_input()
         #**********This might be the other order -- check with printing
 
 
