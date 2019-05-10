@@ -21,7 +21,7 @@ import os
 import time
 import matplotlib.pyplot as plt
 import pandas as pd
-import sparse
+# import sparse
 
 class Puff(object):
     """
@@ -994,6 +994,33 @@ class OnlinePlume(object):
         min_bin,max_bin = np.min(target_x_bins),np.max(target_x_bins)
         mask = (target_x_bins[None,:,:]*np.ones((max_bin-min_bin+1,1,1)))==(np.ones_like(
             target_x_bins)[None,:,:]*np.arange(min_bin,max_bin+1)[:,None,None])
+
+        # mask is shape (bins x traps x flies)
+
+        #For each fly, compute its distance to each
+        #source (just using target_x and target_y), and based on which is shortest
+        #AND has positive x, set the entries for all other bin-trap pairs for
+        #that fly to 0.
+
+        #Record which bin-trap pairs which, when we sum across flies, have
+        #at least one fly in them. (M)
+
+        #Of the non-empty bin-trap pairs determined by M, compute the max
+        #per-bin-trap fly count, and make a shortened M, M1 which records the
+        #filled fly column for each bin-trap. (using np.where)
+
+        
+
+        #Record which traps have non-empty bins (from M)
+        #and then collapse the bins into a row vector, preserving the bin value as the entry (N)
+
+        #Use the bin values in (N) to draw puff_x,puff_y,puff_r_sq
+
+        #Now we have 3 (trap-bins x puffs) vars, and 2 (trap-bins x flies ) vars
+
+
+
+
         reshaped_target_x = target_x*mask
         reshaped_target_y = target_y*mask
         dur = time.time()-t1
