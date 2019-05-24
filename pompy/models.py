@@ -921,7 +921,7 @@ class OnlinePlume(object):
                  init_num_puffs=10, max_num_puffs=1000, prng=np.random,
                  max_distance_from_trap = 3000):
         self.R = compute_1d_bin_size(max_distance_from_trap,r_sq_max,epsilon,N)
-
+        # self.num_flies = num_flies
         self.puff_mol_amt = puff_mol_amt
         self._ampl_const = puff_mol_amt / (8 * np.pi**3)**0.5
         #------All below pasted from PlumeModel, need to trim----------
@@ -984,9 +984,13 @@ class OnlinePlume(object):
         #coords: 2 x targets x (# traps)
         #output dimension = number of targets
         target_x,target_y = np.swapaxes(coords,1,2) #shape of each of these two is (traps x flies)
+
+        num_flies = np.shape(target_x)[1]
+
         if len(target_x)==0:
             return np.array([])
-        t1 = time.time()
+        # t1 = time.time()
+        t_last = time.time()
 
 
         #For each fly, based on for which trap it has the smallest absolute y value,
@@ -996,12 +1000,12 @@ class OnlinePlume(object):
         target_y_abs = np.abs(target_y)
         target_y_abs[target_x<0.] = np.inf
 
-        print('bin length: '+str(self.R))
+        # print('bin length: '+str(self.R))
 
-        print('y_abs for each trap: '+str(target_y_abs))
+        # print('y_abs for each trap: '+str(target_y_abs))
 
         closest_traps =  np.argmin(target_y_abs,axis=0)
-        print('closest traps: '+str(closest_traps))
+        # print('closest traps: '+str(closest_traps))
 
         target_x_closest = np.full_like(target_x,np.nan)
         target_y_closest = np.full_like(target_y,np.nan)
@@ -1009,15 +1013,20 @@ class OnlinePlume(object):
         target_y_closest[closest_traps,np.arange(np.shape(target_y_abs)[1])] = target_y[closest_traps,np.arange(np.shape(target_y_abs)[1])]
         target_x_bins = np.floor(target_x_closest/self.R).astype(int) #(shape traps x flies)
         min_bin,max_bin = 0,np.max(target_x_bins)
+        bins_involved=np.arange(min_bin,max_bin+1)
 
-        print('target_x_bins: '+str(target_x_bins))
-        print('bins involved: '+str(np.arange(min_bin,max_bin+1)))
+        # print('target_x_bins: '+str(target_x_bins))
+        # print('target y closest: '+str(target_y[closest_traps,np.arange(np.shape(target_y_abs)[1])]))
+        # print('shape target y closest: '+str(target_y[closest_traps,np.arange(np.shape(target_y_abs)[1])]))
+        # print('bins involved: '+str(np.arange(min_bin,max_bin+1)))
 
+        target_y_to_compute = target_y[closest_traps,np.arange(np.shape(target_y_abs)[1])]
+        target_x_to_compute = target_x[closest_traps,np.arange(np.shape(target_y_abs)[1])]
 
         mask = (target_x_bins[None,:,:]*np.ones((max_bin-min_bin+1,1,1)))==(np.ones_like(
-            target_x_bins)[None,:,:]*np.arange(min_bin,max_bin+1)[:,None,None])
+            target_x_bins)[None,:,:]*bins_involved[:,None,None])
 
-        print('mask: '+str(mask.astype(int)))
+        # print('mask: '+str(mask.astype(int)))
 
         # mask is shape (bins x traps x flies)
         # Now mask should only have, for each fly-column, one trap-row that has an entry in it.
@@ -1026,62 +1035,52 @@ class OnlinePlume(object):
         #Record which bin-trap pairs which, when we sum across flies, have
         #at least one fly in them. (nonempty_bin_mask=M)
         nonempty_bin_mask = (np.sum(mask,axis=2)>0) #shape (bins x traps)
-        print('nonempty_bin_mask: '+str(nonempty_bin_mask.astype(int)))
+        # print('nonempty_bin_mask: '+str(nonempty_bin_mask.astype(int)))
         #Record which traps have non-empty bins (from M)
         #and then collapse the bins into a row vector, preserving the bin value as the entry (N)
         num_nonempty_bins = np.sum(nonempty_bin_mask,axis=0) #now len = traps
         collapsed_bins = np.zeros((2,np.sum(num_nonempty_bins)))
-        print('total bin count: '+str(np.sum(num_nonempty_bins)))
-        print('trap bin counts: '+str(num_nonempty_bins))
+        # print('total bin count: '+str(np.sum(num_nonempty_bins)))
+        # print('trap bin counts: '+str(num_nonempty_bins))
         last = 0
         for trap,trap_bin_count in enumerate(num_nonempty_bins):
-            collapsed_bins[0,last:trap_bin_count] = np.where(nonempty_bin_mask[:,trap]>0)[0]
-            collapsed_bins[1,last:trap_bin_count] = trap
+            # print('trap: '+str(trap))
+            # print('trap_bin_count: '+str(trap_bin_count))
+            collapsed_bins[0,last:last+trap_bin_count] = np.where(nonempty_bin_mask[:,trap]>0)[0]
+            collapsed_bins[1,last:last+trap_bin_count] = trap
             last = trap_bin_count
-        print('collapsed_bins: '+str(collapsed_bins))
-        raw_input()
+        # print('collapsed_bins: '+str(collapsed_bins))
+        # raw_input()
         #Of the non-empty bin-trap pairs determined by M, compute the max
         #per-bin-trap fly count, and make a shortened M, M1 which records the
         #filled fly column for each bin-trap. (using np.where)
 
         collapsed_bin_inds,fly_inds  = np.where(
             mask[collapsed_bins[0,:].astype(int),collapsed_bins[1,:].astype(int),:])
-        collapsed_bin_inds = collapsed_bins[0,collapsed_bin_inds]
-        print(collapsed_bin_inds,fly_inds)
-        raw_input()
-        #**********This might be the other order -- check with printing
+        collapsed_bin_inds = collapsed_bins[0,collapsed_bin_inds].astype(int)
+        # print(collapsed_bin_inds,fly_inds)
+        # raw_input()
 
 
         #Use the bin values in (N) to draw puff_x,puff_y,puff_r_sq
 
-        #Now we have 3 (trap-bins x puffs) vars, and 2 (trap-bins x flies ) vars
-
-
-
-
-        reshaped_target_x = target_x*mask
-        reshaped_target_y = target_y*mask
-        dur = time.time()-t1
-        print('time spend rearranging flies: '+str(dur))
-
-        print(np.shape(reshaped_target_x))
-        # raw_input()
-
-
         #For each x bin, draw the likely number of puffs in it
         per_bin_lambda = (self.R/self.wind_speed)*self.puff_release_rate
         puff_count_per_bin = self.prng.poisson(
-            per_bin_lambda,
-                size=(max_bin-min_bin+1,self.num_traps))
-
+            per_bin_lambda,size=len(bins_involved)) #puff_count_per_bin is just len(bins_involved)
         max_puffs_per_bin = np.max(puff_count_per_bin)
 
+        # print('per bin lambda: '+str(per_bin_lambda))
+        # print('max puffs per bin: '+str(max_puffs_per_bin))
+
+        binomial_p = min(per_bin_lambda/max_puffs_per_bin,1.)
+
         varying_puff_count_mask = self.prng.binomial(
-            1.,per_bin_lambda/max_puffs_per_bin,
-                size=(np.shape(puff_count_per_bin)[0],
-                    max_puffs_per_bin,
-                    np.shape(puff_count_per_bin)[1]
-                    )).astype(bool)
+            1.,binomial_p,
+                size=(len(bins_involved),
+                    max_puffs_per_bin)
+                    ).astype(bool) #this will now just be size (bins_involved x max_puffs)
+        # print('varying_puff_count_mask shape '+str(np.shape(varying_puff_count_mask)))
 
         #For each x_bin (the distance bins of the targets) compute/draw the probable
         #age t of the puffs in that distance bin
@@ -1092,102 +1091,70 @@ class OnlinePlume(object):
 
         #For implementation test, haven't properly computed this distribution
         #yet -- picking a fixed std
-        all_bins_by_trap = (self.R*np.arange(min_bin,max_bin+1)[:,None]*np.ones(
-            self.num_traps))
+
+        # print('max puffs per bin: '+str(max_puffs_per_bin))
+
         x_bin_t_values = self.prng.normal(
-            all_bins_by_trap[:,None,:]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin,1)))
+                    bins_involved[:,None]/self.wind_speed,.1*np.ones((1,max_puffs_per_bin)))
+        #shape (bins_involved x max_puffs)
 
-        #Then, compute the r_sq values that correspond to each of these bins
-        #(direct function of the age t)
+        #This is going to result in some negative t values for bin = 0 --> set these to their absolute value
+
+        x_bin_t_values[x_bin_t_values<0.]= np.abs(x_bin_t_values[x_bin_t_values<0.])
         puff_r_sqs = x_bin_t_values*self.puff_spread_rate
-
-        #Draw the likely y values for these ages
-        puff_y_values = np.zeros_like(x_bin_t_values)
-        puff_y_values[x_bin_t_values<0] = np.inf #The bins that are negative should have puffs at infinity
-        puff_r_sqs[x_bin_t_values<0] = 1e20 #The bins that are negative should have v large r_sqs (don't make them inf because will lead to nans)
-        print('online plume centre_rel_diff_scale: '+str(self.centre_rel_diff_scale))
-
-        puff_y_values[x_bin_t_values>=0] = self.prng.normal(
-            0,self.centre_rel_diff_scale*np.sqrt(x_bin_t_values[x_bin_t_values>=0]))
-        #
-        # plt.figure()
-        # # plt.hist(puff_r_sqs[puff_r_sqs<1e3].flatten())
-        # plt.hist(x_bin_t_values.flatten())
-        # plt.show()
-        # raw_input()
-
-        #Make a 3d array of the x_values by stacking target_x_bins by puffs
-        puff_x_values = np.ones((1,max_puffs_per_bin,1))*all_bins_by_trap[:,None,:]
-
+        puff_y_values = self.prng.normal(
+            0,self.centre_rel_diff_scale*np.sqrt(x_bin_t_values))
+        puff_x_values = self.R*bins_involved[:,None]*np.ones((1,max_puffs_per_bin))
         #Add uniformly distributed noise to spread them accross the bin space
         puff_x_values += np.random.uniform(0.,self.R,size=np.shape(puff_x_values))
 
+        # print('puff_x_values shape '+str(np.shape(puff_x_values)))
 
-        #Assign to np.inf the x and y values for the 0 elements of the puff count mask
-        puff_y_values[np.logical_not(varying_puff_count_mask)] = np.inf
+
         puff_x_values[np.logical_not(varying_puff_count_mask)] = np.inf
+        puff_y_values[np.logical_not(varying_puff_count_mask)] = np.inf
+        #shape (bins_involved x max_puffs)
 
-        plt.figure()
-        plt.hist(x_bin_t_values[x_bin_t_values>0.])
 
-        plt.figure()
-        plt.scatter(puff_x_values.flatten()[::10],puff_y_values.flatten()[::10],
-            alpha=0.1,c=puff_r_sqs.flatten()[::10])
-        plt.xlim((0., 1800.))
-        plt.ylim((-30., 30.))
-        plt.title(str(np.sum(~np.isinf(puff_x_values[puff_x_values<1800.]))))
-        print(np.shape(varying_puff_count_mask))
-        plt.title(str(np.sum(varying_puff_count_mask[puff_x_values<1800.])))
-        plt.colorbar()
-        raw_input()
+        #Now we have 3 (trap-bins x puffs) vars, and 2 (trap-bins x flies ) vars
+
+        # plt.figure()
+        # plt.hist(x_bin_t_values[x_bin_t_values>0.])
         #
-        # plt.savefig('viz_test',format='png')
+        # plt.figure()
+        # plt.scatter(puff_x_values.flatten()[::10],puff_y_values.flatten()[::10],
+        #     alpha=0.1,c=puff_r_sqs.flatten()[::10])
+        # plt.colorbar()
+        # #
+
+        #Since the puff_x, puff_y etc are shape bins x puffs, we can duplicate/expand it
+        #to shape flies x puffs since we know which flies go to which bins
+
+        puff_x_values_by_fly = np.full((num_flies,max_puffs_per_bin),np.inf)
+        puff_y_values_by_fly = np.full((num_flies,max_puffs_per_bin),np.inf)
+        puff_r_sq_by_fly = np.full((num_flies,max_puffs_per_bin),np.inf)
+
+        puff_x_values_by_fly[fly_inds,:] = puff_x_values[collapsed_bin_inds,:]
+        puff_y_values_by_fly[fly_inds,:] = puff_y_values[collapsed_bin_inds,:]
+        puff_r_sq_by_fly[fly_inds,:] = puff_r_sqs[collapsed_bin_inds,:]
         #
-        # sys.exit()
-
-        #Now all that remains is in a broadcasting fashion to sum the newly
-        #drawn Gaussian's contributions to each fly.
-
-        t_last = time.time()
-
-        #input to output shapes:
-        # puff variables (bins x traps x puffs) + fly variables (bins x traps x flies) -->
-        # output (bins x traps x puffs x flies)
-
-        puff_x_values=np.swapaxes(puff_x_values,1,2)
-        puff_y_values=np.swapaxes(puff_y_values,1,2)
-        puff_r_sqs=np.swapaxes(puff_r_sqs,1,2)
-
-        print(np.shape(reshaped_target_x))
-        print(np.shape(puff_x_values))
-        print(np.shape(puff_y_values))
+        # print(puff_x_values_by_fly)
         # raw_input()
 
-        args = [puff_x_values[:,:,:,None],puff_y_values[:,:,:,None],
-        np.zeros_like(puff_x_values)[:,:,:,None],
-        puff_r_sqs[:,:,:,None],
-                reshaped_target_x[:,:,None,:],
-                    reshaped_target_y[:,:,None,:]]
+        #Now all the puff inputs will be flies x puffs, and the fly inputs will be just shape flies
 
-        # args = [sparse.COO(arg) for arg in args]
 
-        # values = self.compute_Gaussian(*args)
-        values = self.compute_Gaussian(*args)
+        values = self.compute_Gaussian(puff_x_values_by_fly,puff_y_values_by_fly
+            ,0.,puff_r_sq_by_fly,target_x_to_compute[:,None],target_y_to_compute[:,None])
 
-        #.todense()
-        #output shape (bins x traps x puffs x flies)
+        #output shape (flies x puffs)
 
         print('Gaussian computation time:'+str(time.time()-t_last))
-        # raw_input()
-        values_by_trap = np.sum(values,axis=2)
-        print(values_by_trap[values_by_trap>0])
-        #now shape (bins x traps x flies), represents the contribution from each trap-bin
-        # to each target's concentration value
 
-        #Sum across trap-bins to obtain a list of concentrations for each target
-        target_values = np.sum(values_by_trap,axis=(0,1))
+        #Sum across puffs to obtain a list of concentrations for each target
+        target_values = np.sum(values,axis=1)
 
-        print(target_values)
+        # print(target_values)
         # raw_input()
 
         return target_values
