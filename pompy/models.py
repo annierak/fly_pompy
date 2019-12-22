@@ -13,14 +13,14 @@ import scipy
 import scipy.interpolate as interp
 import scipy.sparse
 import scipy.special
-import utility
-import datetime
-import h5_logger
-import cPickle as pickle
-import os
-import time
-import matplotlib.pyplot as plt
-import pandas as pd
+# import utility
+# import datetime
+# import h5_logger
+# import cPickle as pickle
+# import os
+# import time
+# import matplotlib.pyplot as plt
+# import pandas as pd
 # import sparse
 
 class Puff(object):
@@ -315,7 +315,7 @@ class PlumeModel(object):
 
         filament_diff_vel = (self.prng.normal(size=(num_active,self._vel_dim)) *
             self.centre_rel_diff_scale)
-        print(self.centre_rel_diff_scale)
+        # print(self.centre_rel_diff_scale)
 
         vel = wind_vel + filament_diff_vel
 
