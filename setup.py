@@ -11,7 +11,7 @@ here = path.abspath(path.dirname(__file__))
 
 setup(
     name='pompy',
-    version='0.0.0',
+    version='0.1.0',
     description='Puff-based odour plume model',
     author='Matt Graham, Annie Rak',
     license='MIT',

@@ -118,10 +118,11 @@ class ConcentrationValueFastCalculator(object):
         Calculates odour concentration values at points in simulation region from
         puff property arrays, using O(N+M) approximation algorithm for speed improvement.
         """
-        def __init__(self,box_min,box_max,r_sq_max,epsilon,puff_mol_amt,N):
+        def __init__(self,box_min,box_max,r_sq_max,epsilon,puff_mol_amt,N,verbose=False):
                     # puff_spread_rate,trap_locs,wind_speed):
                     #bounds = box_min,box_max
-            self.grid = ConcentrationGrid(box_min,box_max,r_sq_max,epsilon,N)
+            self.verbose = verbose
+            self.grid = ConcentrationGrid(box_min,box_max,r_sq_max,epsilon,N,verbose=verbose)
             self.box_min = box_min
             self.box_max = box_max
             self.neighbors_dct = defaultdict(list)
@@ -163,50 +164,9 @@ class ConcentrationValueFastCalculator(object):
                 #find what box it's in--value is a list: [source_x,source_y,r_sq]
                 source_grid_dict[tuple(source_box)].append(
                     [source[0],source[1],source[2],source_r_sq])
-            # print('option 1 time: '+str(time.time()-t1aa))
 
-
-            # t1ab = time.time()
-            # unique_source_boxes = np.unique(source_boxes,axis=0)
-            # #print(np.shape(unique_source_boxes))
-            # #print(np.shape(source_boxes))
-            # boxes = self.all_boxes
-            # source_grid_dict = dict.fromkeys(boxes,[])
-            # # source_grid_dict1 = defaultdict(list)
-            # for box in unique_source_boxes:
-            #     #find what box it's in--value is a list: [source_x,source_y,r_sq]
-            #     inds = np.where(np.sum((source_boxes==box),axis=1)==2)[0]
-            #     source_set = np.hstack((source_loc[inds,:],r_sq[inds,np.newaxis]))
-            #     source_grid_dict[tuple(box)] = source_set
-            # print('option 2 time: '+str(time.time()-t1ab))
-            #
-            # t1ac = time.time()
-            # unique_source_boxes = np.unique(source_boxes,axis=0)
-            # boxes = self.all_boxes
-            # source_grid_dict1 = dict.fromkeys(boxes,[])
-            #
-            # t1ad = time.time()
-            # usb_inds,sb_inds = np.where(
-            #     (unique_source_boxes[:,0].T[:,np.newaxis]==source_boxes.T[0,:])&
-            #     (unique_source_boxes[:,1].T[:,np.newaxis]==source_boxes.T[1,:])
-            #     )
-            # print('np where time: '+str(time.time()-t1ad))
-            # print('option 3a time: '+str(time.time()-t1ac))
-            # for i,box in enumerate(unique_source_boxes):
-            #     source_grid_dict1[tuple(box)] =  \
-            #         source_boxes[sb_inds[usb_inds==i],:]
-            #
-            # print('option 3 time: '+str(time.time()-t1ac))
-
-
-
-            # print(source_grid_dict.keys())
-            # raw_input()
-            # print(len(source_grid_dict.values()[1]))
-            # print(len(source_grid_dict1.values()[1]))
-            # raw_input()
-
-            print('put each source in its box: '+str(time.time()-t1a))
+            if self.verbose:
+                print('put each source in its box: '+str(time.time()-t1a))
             #do the same for all the targets -- also collect the target index
             target_boxes = self.grid.assign_box(target_loc)
             target_grid_dict = defaultdict(list)
@@ -215,7 +175,8 @@ class ConcentrationValueFastCalculator(object):
                 target_grid_dict[tuple(target_box)].append(
                     [target_loc[0],target_loc[1],target_index])
             na = np.newaxis
-            print('alg step 1 time: '+str(time.time()-t1))
+            if self.verbose:
+                print('alg step 1 time: '+str(time.time()-t1))
             t2 = time.time()
             #(2) Within-box pairwise computation step
             #Loop through the grid boxes
@@ -242,61 +203,10 @@ class ConcentrationValueFastCalculator(object):
                         pass
                 else:
                     pass
-            print('alg step 2 time: '+str(time.time()-t2))
+            if self.verbose:
+                print('alg step 2 time: '+str(time.time()-t2))
 
             return target_values
-        # def calc_conc_list(self, puffs,x, y, z=0):
-        #
-        #     #Trap locs: (traps x 2)
-        #     na = np.newaxis
-        #     puffs_reshaped = puffs.reshape(-1,puffs.shape[-1])
-        #     px, py, pz, r_sq = puffs_reshaped[~np.isnan(puffs_reshaped[:, 0]), :].T
-        #
-        #     source_loc = np.array([px,py,pz]).T
-        #     target_loc = np.array([x,y]).T
-        #     target_values = np.zeros(len(x))
-        #
-        #     #Compute distance of each fly to each trap
-        #
-        #     fly_distances = np.sqrt(np.sum(np.square(
-        #         target_loc.T[na,:,:]-self.trap_locs[:,:,na]),axis=1))
-        #     #distances is (n traps x n flies)
-        #
-        #     #Send distances through a function that assigns them to a distance bin
-        #     fly_distance_bins = np.floor(fly_distances/self.grid.R) #also (n traps x n flies)
-        #
-        #     bin_max = int(np.max(fly_distance_bins))
-        #
-        #     #Loop through the bins
-        #     for i in range(1,bin_max):
-        #     #the sources considered are the puffs with distance corresponding to bins
-        #     #(i-1,i,i+1) except biggest and littlest
-        #         puff_r_sq_min,puff_r_sq_max = np.array([i-1,i+1])* \
-        #             (self.grid.R/self.wind_speed)*self.puff_spread_rate
-        #         puffs_to_consider = (puffs[:,:,3] > puff_r_sq_min) & (
-        #             puffs[:,:,3] < puff_r_sq_max) #inds of relevant puffs
-        #         # print(np.shape(puffs[puffs_to_consider]))
-        #
-        #         #shape of puffs[puffs_to_consider] is puffs x 4
-        #         source_x,source_y,source_z,r_sq = puffs[puffs_to_consider].T
-        #         target_indices = (np.sum(fly_distance_bins==i,axis=0)>0)
-        #         # print(np.sum(target_indices))
-        #         if (np.sum(target_indices)>0) & (np.sum(puffs_to_consider)>0):
-        #             # print(np.shape(target_loc[target_indices,:]))
-        #             target_x,target_y = target_loc[target_indices,:].T
-        #             target_x,target_y = target_x[:,na],target_y[:,na]
-        #
-        #             output_array =  self.compute_Gaussian(
-        #                 source_x,source_y,source_z,r_sq,target_x,target_y).sum(1)
-        #
-        #             # print(np.shape(target_values[target_indices.astype(int)]))
-        #             # print(np.shape(target_values[target_indices]))
-        #             # print(np.shape(target_indices.astype(int)))
-        #             # print(np.shape(output_array))
-        #
-        #             target_values[target_indices] = output_array
-        #
-        #     return target_values
 
         def calc_conc_display_grid(self, puffs,z=0,nx=1000,ny=1000):
             conc_array_locs_x,conc_array_locs_y = np.meshgrid(
@@ -322,14 +232,15 @@ class ConcentrationGrid(object):
     from all sources outside the target's immediate neighbor boxes
     is less than epsilon.
     """
-    def __init__(self,box_min,box_max,r_sq_max,epsilon,N):
+    def __init__(self,box_min,box_max,r_sq_max,epsilon,N,verbose=False):
         self.bounds = np.array([[box_min,box_max],[box_min,box_max]])
         self.R = np.sqrt(-1*np.log(epsilon*(r_sq_max**1.5)*np.sqrt(8*np.pi**3)/(N))*2*r_sq_max)
         n_boxes = int(math.ceil((box_max-box_min)/self.R))
         self.unit_width = 1/n_boxes
         self.grid_min = 0
         self.grid_max = n_boxes
-        print('num boxes: '+str(n_boxes))
+        if verbose:
+            print('num boxes: '+str(n_boxes))
 
 
     def assign_box(self,location): #1D--combine to 2D
